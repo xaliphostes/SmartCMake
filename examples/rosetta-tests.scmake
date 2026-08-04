@@ -1,0 +1,165 @@
+// The rosetta test suite, which is 197 lines of hand-written CMake with the
+// same five commands repeated per test target.
+//
+//   scmake examples/rosetta-tests.scmake -o /tmp/CMakeLists.txt
+
+set CLANG_P2996_ROOT = `${env.HOME}/devs/c++/clang-p2996/build`
+    cache(PATH, "Bloomberg clang-p2996 fork build directory")
+
+when (!cmake.CXX_COMPILER) {
+    set CMAKE_C_COMPILER = `${vars.CLANG_P2996_ROOT}/bin/clang`
+    set CMAKE_CXX_COMPILER = `${vars.CLANG_P2996_ROOT}/bin/clang++`
+}
+
+project "introspection-cpp26" {
+    cmakeMinimum: "3.28"
+    languages: [CXX]
+
+    cxx: 26
+    standardRequired: true
+    extensions: false
+    scanForModules: false
+
+    compileOptions: ["-freflection", "-freflection-latest", "-fexperimental-library"]
+
+    linkOptions: [
+        "-nostdlib++",
+        `-L${vars.CLANG_P2996_ROOT}/lib`,
+        `-Wl,-rpath,${vars.CLANG_P2996_ROOT}/lib`,
+        "-lc++",
+        "-lc++abi",
+    ]
+
+    // GoogleTest is built from source (FetchContent) AFTER the options above so
+    // it shares this toolchain's libc++ / -fexperimental-library ABI. A prebuilt
+    // gtest (e.g. from Homebrew) is compiled against a different libc++ and
+    // would not link.
+    fetch googletest {
+        git: "https://github.com/google/googletest.git"
+        tag: "v1.15.2"
+        options: { INSTALL_GTEST: false }
+    }
+
+    // nlohmann/json — header-only, used by the JSON visitor (rosetta::to_json).
+    fetch nlohmann_json {
+        git: "https://github.com/nlohmann/json.git"
+        tag: "v3.11.3"
+    }
+
+    const INCLUDE = `${cmake.SOURCE_DIR}/../include`
+    const REFLECT = ["-fannotation-attributes"]
+
+    // docgen is the one target that is not a gtest binary.
+    executable docgen {
+        sources: ["docgen.cpp"]
+        include: [INCLUDE]
+        compileOptions: REFLECT
+    }
+
+    const SUITES = [
+        { name: "moc" },
+        {
+            name: "annotate_json",
+            doc: `Out-of-line annotations: metadata supplied via the
+                  ann_json_source<T> customization point (the same point
+                  rosetta_gen bakes a JSON side-car into).`,
+        },
+        {
+            name: "inheritance",
+            doc: `Inherited-member flattening in walk<T>(): single inheritance,
+                  shadowing, and virtual-diamond collapse. Verified via
+                  to_json/from_json and to_markdown.`,
+            extra: [nlohmann_json.nlohmann_json],
+        },
+        {
+            name: "python_trampoline",
+            doc: `Python backend trampoline emission for virtual methods
+                  (consumes virtual_spec). Verifies the generated
+                  auto_pybind.cpp source, not a live pybind build.`,
+        },
+        {
+            name: "node_trampoline",
+            doc: `Node backend trampoline emission for virtual methods (consumes
+                  virtual_spec). Verifies the generated auto_napi.cpp source (no
+                  live N-API build needed).`,
+        },
+        {
+            name: "member_object",
+            doc: `Member-object property binding (mesh.vertices-style aliased
+                  references) and overload-set gating in the *-expanded
+                  backends. Verifies generated sources.`,
+        },
+        {
+            name: "sequence",
+            doc: `Foreign-sequence marshalling (rosetta::is_sequence —
+                  GEO::vector-style containers through a std::vector boundary).
+                  Verifies generated sources.`,
+        },
+        {
+            name: "user_lib",
+            doc: `External-library link block (manifest "user_lib", one library
+                  or a list of them). Verifies the CMake text emitted into every
+                  compiled backend.`,
+        },
+        {
+            name: "shared_ptr",
+            doc: `std::shared_ptr marshalling (GenType::is_shared_ptr + the
+                  python-expanded holder registration), the pybind11
+                  override-macro comma fix, and nanobind's per-header STL
+                  casters / abstract-class constructor guard.`,
+        },
+        {
+            name: "expose",
+            doc: `The manifest "expose" rename on free functions and extension
+                  methods (make_function's override + every backend's
+                  exposed-name / qualified-call split).`,
+        },
+        {
+            name: "interop_eigen",
+            doc: `Foreign-library interop ("interop": ["eigen"]): the walk marks
+                  types by enclosing namespace, so the suite runs against a stub
+                  Eigen namespace and needs no Eigen dependency.`,
+        },
+        {
+            name: "out_dir",
+            doc: `Per-target artifact directory (manifest target "out_dir"): the
+                  built module is copied where the project wants it, wasm's
+                  .js+.wasm pair included.`,
+        },
+        {
+            name: "runtime_pins",
+            doc: `Per-target runtime pins (manifest "python" / "requires_python"
+                  / "napi_version" / "node_engine") in the emitted CMake,
+                  pyproject and package.json.`,
+        },
+        {
+            name: "ref_return",
+            doc: `Reference returns in the Python family: a non-const lvalue-ref
+                  return of a bound class binds with reference_internal instead
+                  of being copied.`,
+        },
+        {
+            name: "matrix",
+            doc: `Foreign 2-D matrices (rosetta::is_matrix — Eigen::MatrixXd-shaped
+                  grids through a vector-of-rows boundary).`,
+        },
+        {
+            name: "interop_sequence",
+            doc: `The flat-array escape hatch: a concrete interop-owned type ALSO
+                  registered as a sequence, so the caster-less backends bind it
+                  as an array while the Python family keeps numpy.`,
+        },
+        { name: "nested_enum" },
+    ]
+
+    for (suite of SUITES) {
+        executable(suite.name) {
+            doc: get(suite, "doc", "")
+            sources: [`${suite.name}.cpp`]
+            include: [INCLUDE]
+            compileOptions: REFLECT
+            link: [GTest.gtest_main] + get(suite, "extra", [])
+            discoverTests()
+        }
+    }
+}

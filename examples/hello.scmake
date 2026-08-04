@@ -1,0 +1,52 @@
+// A small tour of the language.
+//
+//   scmake examples/hello.scmake -o -
+
+project Hello {
+    cmakeMinimum: "3.20"
+    version: "0.1.0"
+
+    cxx: 20
+    standardRequired: true
+    extensions: false
+
+    fetch fmt {
+        git: "https://github.com/fmtlib/fmt.git"
+        tag: "11.0.2"
+    }
+
+    // A header-only library: no sources, INTERFACE visibility by default.
+    interface hello_headers {
+        include: [`${cmake.CURRENT_SOURCE_DIR}/include`]
+    }
+
+    library hello_core(STATIC) {
+        sources: ["src/greeter.cpp", "src/format.cpp"]
+        include(PUBLIC): ["include"]
+        link(PUBLIC): [hello_headers]
+        link(PRIVATE): [fmt.fmt]
+        compileOptions: ["-Wall", "-Wextra"]
+    }
+
+    executable hello {
+        sources: ["src/main.cpp"]
+        link: [hello_core]
+    }
+
+    // `when` is a *configure-time* branch: it becomes a real if()/endif().
+    when (cmake.BUILD_TYPE == "Debug") {
+        defines: ["HELLO_DEBUG=1"]
+    }
+
+    // `const` / `for` / `if` are *transpile-time*: they vanish from the output.
+    const SUITES = ["greeter", "format"]
+
+    for (name of SUITES) {
+        executable(`test_${name}`) {
+            doc: `Unit tests for ${name}.cpp`
+            sources: [`tests/${name}_test.cpp`]
+            link: [hello_core, GTest.gtest_main]
+            discoverTests()
+        }
+    }
+}
