@@ -1,0 +1,147 @@
+{
+  "project": {
+    "prefix": "project",
+    "body": [
+      "project ${1:MyApp} {",
+      "\tcmakeMinimum: \"${2:3.20}\"",
+      "\tversion: \"${3:0.1.0}\"",
+      "",
+      "\tcxx: ${4:20}",
+      "\tstandardRequired: true",
+      "\textensions: false",
+      "",
+      "\t$0",
+      "}"
+    ],
+    "description": "A project block (cmake_minimum_required is hoisted for you)"
+  },
+  "executable": {
+    "prefix": "executable",
+    "body": [
+      "executable ${1:app} {",
+      "\tsources: [\"${2:src/main.cpp}\"]",
+      "\tlink: [$3]",
+      "}"
+    ],
+    "description": "add_executable target"
+  },
+  "library": {
+    "prefix": "library",
+    "body": [
+      "library ${1:core}(${2|STATIC,SHARED,MODULE|}) {",
+      "\tsources: [\"${3:src/a.cpp}\"]",
+      "\tinclude(PUBLIC): [\"include\"]",
+      "}"
+    ],
+    "description": "add_library target"
+  },
+  "interface": {
+    "prefix": "interface",
+    "body": [
+      "interface ${1:headers} {",
+      "\tinclude: [`\\${cmake.CURRENT_SOURCE_DIR}/${2:include}`]",
+      "}"
+    ],
+    "description": "Header-only INTERFACE target"
+  },
+  "install": {
+    "prefix": "install",
+    "body": [
+      "install {",
+      "\ttargets: [${1:app}]",
+      "\truntime: \"${2:bin}\"",
+      "}"
+    ],
+    "description": "install(TARGETS ...); inside a target block the target is implied"
+  },
+  "install directory": {
+    "prefix": "installdir",
+    "body": [
+      "install {",
+      "\tdirectory: \"${1:include/}\"",
+      "\tdestination: \"${2:include}\"",
+      "}"
+    ],
+    "description": "install(DIRECTORY ... DESTINATION ...)"
+  },
+  "function": {
+    "prefix": "function",
+    "body": [
+      "function ${1:add_my_library}(${2:target_name}) {",
+      "\t$0",
+      "}"
+    ],
+    "description": "A CMake function(); parameters and ARGN are bound in the body"
+  },
+  "include": {
+    "prefix": "#include",
+    "body": ["#include \"${1:cmake/utils.scmake}\""],
+    "description": "Splice another .scmake file's output in at this point"
+  },
+  "fetch": {
+    "prefix": "fetch",
+    "body": [
+      "fetch ${1:googletest} {",
+      "\tgit: \"${2:https://github.com/google/googletest.git}\"",
+      "\ttag: \"${3:v1.15.2}\"",
+      "}"
+    ],
+    "description": "FetchContent dependency"
+  },
+  "when": {
+    "prefix": "when",
+    "body": [
+      "when (${1:cmake.BUILD_TYPE == \"Debug\"}) {",
+      "\t$0",
+      "}"
+    ],
+    "description": "Configure-time branch — emits a real if()/endif()"
+  },
+  "if": {
+    "prefix": "if",
+    "body": ["if (${1:condition}) {", "\t$0", "}"],
+    "description": "Transpile-time branch — only the winning arm is written out"
+  },
+  "for": {
+    "prefix": "for",
+    "body": ["for (${1:item} of ${2:LIST}) {", "\t$0", "}"],
+    "description": "Transpile-time loop — expands away"
+  },
+  "const": {
+    "prefix": "const",
+    "body": ["const ${1:NAME} = ${2:value}"],
+    "description": "Transpile-time constant (vanishes from the output)"
+  },
+  "set": {
+    "prefix": "set",
+    "body": ["set ${1:NAME} = ${2:\"value\"}"],
+    "description": "A real CMake set()"
+  },
+  "setcache": {
+    "prefix": "setcache",
+    "body": [
+      "set ${1:NAME} = ${2:\"value\"} cache(${3|PATH,FILEPATH,STRING,BOOL,INTERNAL|}, \"${4:doc}\")"
+    ],
+    "description": "A CMake cache entry"
+  },
+  "discoverTests": {
+    "prefix": "discoverTests",
+    "body": ["discoverTests()"],
+    "description": "gtest_discover_tests(<target>) — pulls in enable_testing()/GoogleTest"
+  },
+  "findPackage": {
+    "prefix": "findPackage",
+    "body": ["findPackage(${1:Qt6}, REQUIRED, COMPONENTS, ${2:Widgets})"],
+    "description": "find_package(...)"
+  },
+  "raw": {
+    "prefix": "raw",
+    "body": ["raw \"${1:install(TARGETS app DESTINATION bin)}\""],
+    "description": "Escape hatch: emit a literal CMake line"
+  },
+  "cmake": {
+    "prefix": "cmake",
+    "body": ["cmake(\"${1:some_command}\", ${2:ARG1})"],
+    "description": "Escape hatch: any CMake command not covered by a keyword"
+  }
+}

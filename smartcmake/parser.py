@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from pathlib import Path
+
 from . import nodes as N
 from .errors import ScmakeError
 from .lexer import Comment, Token, tokenize
@@ -9,18 +11,24 @@ from .lexer import Comment, Token, tokenize
 TARGET_KEYWORDS = ("executable", "library", "interface")
 
 
-def parse(src: str, filename: str = "<scmake>") -> list:
+def parse(src: str, filename: str = "<scmake>", base_dir: Path | None = None,
+          stack: tuple[Path, ...] = ()) -> list:
     toks, comments = tokenize(src, filename)
-    return Parser(toks, comments, filename).parse_program()
+    return Parser(toks, comments, filename, base_dir, stack).parse_program()
 
 
 class Parser:
-    def __init__(self, toks: list[Token], comments: list[Comment], filename: str):
+    def __init__(self, toks: list[Token], comments: list[Comment], filename: str,
+                 base_dir: Path | None = None, stack: tuple[Path, ...] = ()):
         self.toks = toks
         self.i = 0
         self.comments = comments
         self.ci = 0
         self.filename = filename
+        # Where `#include "..."` resolves relative paths from, and the chain of
+        # files currently being included, used to detect cycles.
+        self.base_dir = base_dir if base_dir is not None else Path(filename).parent
+        self.stack = stack
 
     # --- token helpers ----------------------------------------------------
 
@@ -103,11 +111,21 @@ class Parser:
     def parse_statement(self) -> list:
         tok = self.peek()
         floating, comments = self.split_comments(self.take_comments(tok.line), tok.line)
+
+        # `#include "path.scmake"` splices another file's statements in here.
+        if tok.kind == "PUNCT" and tok.value == "#":
+            return [*floating, *self.parse_include()]
+
         if tok.kind != "IDENT":
             raise self.error(f"expected a statement, got {tok.value!r}")
 
         kw = tok.value
-        if kw == "project":
+        if kw == "function":
+            st = self.parse_function()
+        elif kw == "install" and self.peek(1).kind == "PUNCT" and self.peek(1).value == "{":
+            self.advance()
+            st = N.Install(self.parse_block())
+        elif kw == "project":
             st = self.parse_project()
         elif kw == "const":
             st = self.parse_const()
@@ -212,6 +230,50 @@ class Parser:
         self.advance()
         name = self.expect("IDENT").value
         return N.Fetch(name, self.parse_block())
+
+    def parse_function(self):
+        self.advance()
+        name = self.expect("IDENT").value
+        params: list[str] = []
+        self.expect("PUNCT", "(")
+        while not self.at("PUNCT", ")"):
+            params.append(self.expect("IDENT").value)
+            if not self.accept("PUNCT", ","):
+                break
+        self.expect("PUNCT", ")")
+        return N.Function(name, params, self.parse_block())
+
+    def parse_include(self) -> list:
+        """`#include "cmake/utils.scmake"` — parse that file and return its
+        statements, so they are spliced into the output at this point."""
+        hash_tok = self.advance()
+        word = self.expect("IDENT")
+        if word.value != "include":
+            raise self.error(f"unknown directive '#{word.value}'", word)
+        if not self.at("STRING"):
+            raise self.error('#include needs a quoted path, '
+                             'e.g. #include "cmake/utils.scmake"')
+        raw = self.advance().value
+
+        target = Path(raw)
+        if not target.is_absolute():
+            target = self.base_dir / target
+        try:
+            resolved = target.resolve()
+        except OSError:
+            resolved = target
+
+        if resolved in self.stack:
+            chain = " -> ".join(p.name for p in (*self.stack, resolved))
+            raise ScmakeError(f"#include cycle: {chain}",
+                              hash_tok.line, hash_tok.col, self.filename)
+        try:
+            text = resolved.read_text()
+        except OSError as exc:
+            raise ScmakeError(f"cannot read #include {raw!r}: {exc.strerror}",
+                              hash_tok.line, hash_tok.col, self.filename) from None
+
+        return parse(text, str(resolved), resolved.parent, (*self.stack, resolved))
 
     def parse_setting_or_call(self):
         tok = self.expect("IDENT")

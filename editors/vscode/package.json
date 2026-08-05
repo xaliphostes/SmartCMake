@@ -1,0 +1,52 @@
+{
+  "name": "smartcmake",
+  "displayName": "SmartCMake",
+  "description": "Syntax highlighting for SmartCMake (.scmake) build sources.",
+  "version": "0.1.0",
+  "publisher": "smartcmake",
+  "license": "MIT",
+  "engines": {
+    "vscode": "^1.75.0"
+  },
+  "categories": [
+    "Programming Languages"
+  ],
+  "keywords": [
+    "scmake",
+    "smartcmake",
+    "cmake",
+    "build"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/Xaliphostes/SmartCMake"
+  },
+  "contributes": {
+    "languages": [
+      {
+        "id": "scmake",
+        "aliases": [
+          "SmartCMake",
+          "scmake"
+        ],
+        "extensions": [
+          ".scmake"
+        ],
+        "configuration": "./language-configuration.json"
+      }
+    ],
+    "grammars": [
+      {
+        "language": "scmake",
+        "scopeName": "source.scmake",
+        "path": "./syntaxes/scmake.tmLanguage.json"
+      }
+    ],
+    "snippets": [
+      {
+        "language": "scmake",
+        "path": "./snippets/scmake.json"
+      }
+    ]
+  }
+}

@@ -1,0 +1,67 @@
+// A multi-file project: a library, a test suite per module, and two tools.
+// The repetitive parts live in cmake/helpers.scmake as functions.
+//
+//   scmake examples/toolkit/build.scmake -o -
+//
+// Compare with hello.scmake, which is a single-file tour of the vocabulary.
+
+#include "cmake/helpers.scmake"
+#include "cmake/googletest.scmake"
+
+project toolkit {
+    cmakeMinimum: "3.20"
+    version: "0.2.0"
+    languages: [CXX]
+
+    cxx: 20
+    standardRequired: true
+    extensions: false
+    exportCompileCommands: true
+
+    // A real cache entry, so `cmake -DTOOLKIT_BUILD_TESTS=OFF` works.
+    set TOOLKIT_BUILD_TESTS = true cache(BOOL, "Build the unit tests")
+
+    // Configure-time: CMake decides this, not scmake.
+    when (!cmake.BUILD_TYPE) {
+        buildType: "Release"
+    }
+
+    library toolkit_core(STATIC) {
+        doc: "Everything else links against this."
+        sources: ["src/mesh.cpp", "src/io.cpp"]
+        include(PUBLIC): ["include"]
+        compileOptions(PRIVATE): ["-Wall", "-Wextra"]
+        alias("Toolkit::core")
+    }
+
+    const TOOLS = ["meshconv", "meshinfo"]
+
+    for (tool of TOOLS) {
+        add_tool(tool, `tools/${tool}.cpp`)
+    }
+
+    // The two kinds of logic side by side: `when` is a real if() that CMake
+    // evaluates, and the `for` inside it expands away before CMake ever runs.
+    when (vars.TOOLKIT_BUILD_TESTS) {
+        enableTesting()
+        use_googletest()
+
+        const SUITES = ["mesh", "io"]
+
+        for (suite of SUITES) {
+            add_test_suite(`test_${suite}`, `tests/${suite}_test.cpp`)
+        }
+    }
+
+    install {
+        directory: "include/"
+        destination: "include"
+    }
+
+    install {
+        targets: [toolkit_core]
+        export: "ToolkitTargets"
+        archive: "lib"
+        includes: "include"
+    }
+}

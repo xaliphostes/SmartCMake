@@ -1,0 +1,34 @@
+// Reusable helpers, `#include`d by ../build.scmake.
+//
+// Nothing here is specific to one project, so it can also be compiled on its
+// own and shipped as a plain CMake module for hand-written CMakeLists to use:
+//
+//   scmake examples/toolkit/cmake/helpers.scmake -o cmake/helpers.cmake
+//
+// A file with no `project` block is valid; you get just these functions.
+
+// A GoogleTest binary. The suite's sources are the trailing arguments, so
+// `add_test_suite(test_mesh mesh_test.cpp extra.cpp)` works.
+//
+// Inside a function the parameters are bound to their own expansions — `name`
+// is `${name}` and `ARGN` is `${ARGN}` — which is what lets the ordinary
+// target vocabulary be used here.
+function add_test_suite(name) {
+    executable(name) {
+        sources: [ARGN]
+        include(PRIVATE): [`${vars.PROJECT_SOURCE_DIR}/include`]
+        link(PRIVATE): [toolkit_core, GTest.gtest_main]
+        discoverTests()
+    }
+}
+
+// A command-line tool that links the library and gets installed.
+function add_tool(name) {
+    executable(name) {
+        sources: [ARGN]
+        link(PRIVATE): [toolkit_core]
+        // Inside a target block, install defaults to that target.
+        install { runtime: "bin" }
+    }
+}
+

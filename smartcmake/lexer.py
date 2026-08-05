@@ -13,7 +13,7 @@ from typing import Any
 from .errors import ScmakeError
 
 PUNCT2 = ("==", "!=", "&&", "||", ">=", "<=")
-PUNCT1 = "{}()[]:,.=!<>+"
+PUNCT1 = "{}()[]:,.=!<>+#"
 
 ESCAPES = {"n": "\n", "t": "\t", "r": "\r", "0": "\0"}
 

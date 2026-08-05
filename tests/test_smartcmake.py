@@ -1,6 +1,8 @@
 """Run with:  python3 -m unittest discover -s tests"""
 
+import shutil
 import sys
+import tempfile
 import unittest
 from pathlib import Path
 
@@ -195,6 +197,140 @@ class TestFormatting(unittest.TestCase):
 
     def test_raw_passes_cmake_through_untouched(self):
         self.assertIn("foo_bar(BAZ)", compile_body('raw "foo_bar(BAZ)"'))
+
+
+class TestFunctions(unittest.TestCase):
+    def test_function_wraps_its_body(self):
+        out = compile_source('function f(a) { raw "body()" }', "t.scmake")
+        self.assertIn("function(f a)\n    body()\nendfunction()", out)
+
+    def test_parameters_are_bound_in_the_body(self):
+        out = compile_source(
+            'function addLib(name) { library(name)(SHARED) { sources: [ARGN] } }',
+            "t.scmake")
+        self.assertIn("add_library(${name} SHARED ${ARGN})", out)
+
+    def test_declared_functions_become_callable(self):
+        out = compile_source('function f(a) { raw "x()" }\nf("one", "two")', "t.scmake")
+        self.assertIn("f(one two)", out)
+
+    def test_unknown_calls_are_still_rejected(self):
+        with self.assertRaises(ScmakeError):
+            compile_source('notDeclared("x")', "t.scmake")
+
+    def test_redefining_a_function_is_an_error(self):
+        with self.assertRaises(ScmakeError):
+            compile_source('function f(a) { raw "x()" }\nfunction f(b) { raw "y()" }',
+                           "t.scmake")
+
+
+class TestInstall(unittest.TestCase):
+    def test_targets_with_an_artifact_destination(self):
+        self.assertEqual(
+            compile_body('install { targets: [app]\nruntime: "bin" }'),
+            "install(TARGETS app RUNTIME DESTINATION bin)")
+
+    def test_inside_a_target_it_defaults_to_that_target(self):
+        out = compile_body('executable app { sources: ["m.cpp"]\n'
+                           'install { runtime: "bin" } }')
+        self.assertIn("install(TARGETS app RUNTIME DESTINATION bin)", out)
+
+    def test_directory_form(self):
+        self.assertEqual(
+            compile_body('install { directory: "include/"\ndestination: "include" }'),
+            "install(DIRECTORY include/ DESTINATION include)")
+
+    def test_arguments_follow_cmake_order_not_source_order(self):
+        # destination is written first but must come out after EXPORT.
+        self.assertEqual(
+            compile_body('install { destination: "lib"\nexport: "Ts"\n'
+                         'targets: [core] }'),
+            "install(TARGETS core EXPORT Ts DESTINATION lib)")
+
+    def test_export_alone_is_the_kind(self):
+        self.assertEqual(
+            compile_body('install { export: "Ts"\ndestination: "lib/cmake"\n'
+                         'namespace: "T::" }'),
+            "install(EXPORT Ts DESTINATION lib/cmake NAMESPACE T::)")
+
+    def test_flags_render_as_bare_words(self):
+        self.assertEqual(
+            compile_body('install { files: ["a.txt"]\ndestination: "share"\n'
+                         'optional: true }'),
+            "install(FILES a.txt DESTINATION share OPTIONAL)")
+
+    def test_unknown_settings_are_rejected(self):
+        with self.assertRaises(ScmakeError):
+            compile_body('install { targets: [app]\ndestinaton: "bin" }')
+
+    def test_a_subject_is_required_outside_a_target(self):
+        with self.assertRaises(ScmakeError):
+            compile_body('install { destination: "bin" }')
+
+
+class TestFunctionGuards(unittest.TestCase):
+    def test_shadowing_a_builtin_statement_is_rejected(self):
+        with self.assertRaises(ScmakeError) as cm:
+            compile_source('function enableTesting() { raw "x()" }', "t.scmake")
+        self.assertIn("shadows a built-in", str(cm.exception))
+
+    def test_enable_testing_inside_a_function_is_rejected(self):
+        # CMake accepts it and then silently emits no CTestTestfile.cmake.
+        with self.assertRaises(ScmakeError) as cm:
+            compile_source('function setup() { enableTesting() }', "t.scmake")
+        self.assertIn("directory scope", str(cm.exception))
+
+    def test_it_is_found_through_nested_blocks(self):
+        with self.assertRaises(ScmakeError):
+            compile_source('function setup() { when (cmake.FOO) { enableTesting() } }',
+                           "t.scmake")
+
+
+class TestInclude(unittest.TestCase):
+    def _tree(self, files: dict) -> Path:
+        root = Path(tempfile.mkdtemp())
+        for name, text in files.items():
+            path = root / name
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text(text)
+        self.addCleanup(shutil.rmtree, root, ignore_errors=True)
+        return root
+
+    def test_include_splices_the_other_files_output(self):
+        root = self._tree({
+            "cmake/utils.scmake": 'function f(a) { raw "body()" }',
+            "build.scmake": '#include "cmake/utils.scmake"\nf("x")\n',
+        })
+        out = compile_source((root / "build.scmake").read_text(),
+                             str(root / "build.scmake"))
+        self.assertIn("function(f a)", out)
+        self.assertIn("f(x)", out)
+
+    def test_paths_resolve_relative_to_the_including_file(self):
+        root = self._tree({
+            "a/b/leaf.scmake": 'raw "LEAF"',
+            "a/mid.scmake": '#include "b/leaf.scmake"\nraw "MID"\n',
+            "top.scmake": '#include "a/mid.scmake"\nraw "TOP"\n',
+        })
+        out = compile_source((root / "top.scmake").read_text(), str(root / "top.scmake"))
+        self.assertEqual([l for l in out.splitlines() if l and not l.startswith("#")],
+                         ["LEAF", "MID", "TOP"])
+
+    def test_cycles_are_reported(self):
+        root = self._tree({
+            "one.scmake": '#include "two.scmake"',
+            "two.scmake": '#include "one.scmake"',
+        })
+        with self.assertRaises(ScmakeError) as cm:
+            compile_source((root / "one.scmake").read_text(), str(root / "one.scmake"))
+        self.assertIn("cycle", str(cm.exception))
+
+    def test_a_missing_include_is_reported(self):
+        root = self._tree({"build.scmake": '#include "nope.scmake"'})
+        with self.assertRaises(ScmakeError) as cm:
+            compile_source((root / "build.scmake").read_text(),
+                           str(root / "build.scmake"))
+        self.assertIn("cannot read", str(cm.exception))
 
 
 class TestExample(unittest.TestCase):

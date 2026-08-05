@@ -53,11 +53,54 @@ TARGET_LISTS = {
 
 VISIBILITIES = ("PRIVATE", "PUBLIC", "INTERFACE")
 
+# install { ... }. What is being installed comes first in CMake's grammar, so
+# these three tables are emitted in order and never in the order they were
+# written; `export` is a kind on its own but a modifier next to `targets`.
+INSTALL_KINDS = (
+    ("targets", "TARGETS"),
+    ("files", "FILES"),
+    ("programs", "PROGRAMS"),
+    ("directory", "DIRECTORY"),
+    ("export", "EXPORT"),
+)
+
+# Per-artifact destinations, emitted as `<WORD> DESTINATION <dir>`.
+INSTALL_ARTIFACTS = (
+    ("runtime", "RUNTIME"),
+    ("library", "LIBRARY"),
+    ("archive", "ARCHIVE"),
+    ("bundle", "BUNDLE"),
+    ("framework", "FRAMEWORK"),
+    ("includes", "INCLUDES"),
+)
+
+INSTALL_WORDS = (
+    ("destination", "DESTINATION"),
+    ("namespace", "NAMESPACE"),
+    ("file", "FILE"),
+    ("rename", "RENAME"),
+    ("component", "COMPONENT"),
+    ("configurations", "CONFIGURATIONS"),
+    ("permissions", "PERMISSIONS"),
+    ("pattern", "PATTERN"),
+)
+
+INSTALL_FLAGS = (("optional", "OPTIONAL"), ("excludeFromAll", "EXCLUDE_FROM_ALL"))
+
+INSTALL_KEYS = {k for k, _ in (*INSTALL_KINDS, *INSTALL_ARTIFACTS,
+                               *INSTALL_WORDS, *INSTALL_FLAGS)}
+
 DIRECTORY_CALLS = {
     "enableTesting": ("enable_testing", 0),
     "subdirectory": ("add_subdirectory", 1),
     "include": ("include", 1),
 }
+
+# Names emit_call resolves before user-defined functions. A function using one
+# of these would never be reached, so defining it is an error rather than a
+# silent shadow.
+BUILTIN_STATEMENTS = {*DIRECTORY_CALLS, "findPackage", "message", "cmake",
+                      "discoverTests", "alias", "install", "raw"}
 
 
 class TargetCtx:
@@ -81,6 +124,7 @@ class Emitter:
         self.header_slot = 0
         self.first_target_slot: int | None = None
         self.minimum_emitted = False
+        self.functions: set[str] = set()
 
     # --- entry point ------------------------------------------------------
 
@@ -182,6 +226,10 @@ class Emitter:
             self.emit_target(st, out)
         elif isinstance(st, N.Fetch):
             self.emit_fetch(st, out)
+        elif isinstance(st, N.Function):
+            self.emit_function(st, out)
+        elif isinstance(st, N.Install):
+            self.emit_install(st, out, ctx)
         elif isinstance(st, N.Raw):
             out.extend(str(self.eval(st.value)).splitlines() or [""])
         elif isinstance(st, N.Setting):
@@ -268,6 +316,86 @@ class Emitter:
             self.pop()
             out.extend(indent(body))
         out.append("endif()")
+
+    def emit_install(self, st: N.Install, out: list, ctx: TargetCtx | None) -> None:
+        opts: dict[str, Any] = {}
+        for sub in st.body:
+            if not isinstance(sub, N.Setting) or sub.args:
+                raise self.err("install { ... } takes plain 'key: value' entries", st)
+            if sub.name not in INSTALL_KEYS:
+                raise self.err(f"unknown install setting {sub.name!r}", sub)
+            if sub.name in opts:
+                raise self.err(f"duplicate install setting {sub.name!r}", sub)
+            opts[sub.name] = self.eval(sub.value)
+
+        kinds = [k for k, _ in INSTALL_KINDS if k in opts]
+        if "targets" in opts and "export" in kinds:
+            kinds.remove("export")  # here EXPORT names the set, it is not the kind
+        if len(kinds) > 1:
+            raise self.err(f"install has more than one of {', '.join(kinds)}", st)
+
+        if kinds:
+            key = kinds[0]
+            word = dict(INSTALL_KINDS)[key]
+            values = opts[key] if isinstance(opts[key], list) else [opts[key]]
+        elif ctx is not None:
+            # Inside a target block the target itself is the obvious subject.
+            key, word, values = "targets", "TARGETS", [ctx.name]
+        else:
+            names = ", ".join(k for k, _ in INSTALL_KINDS)
+            raise self.err(f"install needs one of: {names}", st)
+
+        args: list = [[word, *cm_list(values)]]
+        if key == "targets" and "export" in opts:
+            args.append(["EXPORT", cm_value(opts["export"])])
+        for name, keyword in INSTALL_ARTIFACTS:
+            if name in opts:
+                args.append([keyword, "DESTINATION", cm_value(opts[name])])
+        for name, keyword in INSTALL_WORDS:
+            if name in opts:
+                args.append([keyword, *cm_list(opts[name])])
+        for name, keyword in INSTALL_FLAGS:
+            if truthy(opts.get(name, False)):
+                args.append([keyword])
+
+        out.extend(render_command("install", args))
+
+    def emit_function(self, st: N.Function, out: list) -> None:
+        if st.name in BUILTIN_STATEMENTS:
+            raise self.err(f"function {st.name!r} shadows a built-in statement, "
+                           "so calls to it would emit the built-in instead", st)
+        if st.name in self.functions:
+            raise self.err(f"function {st.name!r} is already defined", st)
+        # CMake only honours enable_testing() at directory scope: inside a
+        # function it is accepted and then quietly produces no CTestTestfile,
+        # so the whole suite disappears without an error anywhere.
+        buried = _find_call(st.body, "enableTesting")
+        if buried is not None:
+            raise self.err("enableTesting() does not work inside a function — CMake "
+                           "honours it at directory scope only; call it there instead",
+                           buried)
+        # Registered before the body is walked so a function can recurse.
+        self.functions.add(st.name)
+
+        body: list[str] = []
+        self.push()
+        # Parameters and CMake's implicit argument variables are bound to their
+        # own expansions, so the body says `target_name`, not `vars.target_name`.
+        for name in (*st.params, "ARGC", "ARGN", "ARGV"):
+            self.define(name, "${" + name + "}")
+        for sub in st.body:
+            self.emit_statement(sub, body, None)
+        self.pop()
+        while body and not body[0]:
+            body.pop(0)  # targets space themselves; not wanted after function(
+
+        if not st.comments:
+            # emit_statement already spaced the block when it had comments.
+            out.append("")
+        out.append(f"function({' '.join([st.name, *st.params])})")
+        out.extend(indent(body))
+        out.append("endfunction()")
+        out.append("")
 
     def emit_target(self, st: N.Target, out: list) -> None:
         name = str(self.eval(st.name))
@@ -416,6 +544,9 @@ class Emitter:
             return
         if st.name == "cmake":
             out.extend(render_command(args[0].strip('"'), args[1:]))
+            return
+        if st.name in self.functions:
+            out.extend(render_command(st.name, args))
             return
 
         raise self.err(f"unknown command {st.name}()", st)
@@ -612,6 +743,20 @@ def render_command(name: str, args: list, force_wrap: bool = False) -> list[str]
     if not force_wrap and (len(one_line) <= WRAP_AT or len(units) <= 1):
         return [one_line]
     return [f"{name}(", *[f"    {u}" for u in units], ")"]
+
+
+def _find_call(body: list, name: str):
+    """Depth-first search for a call to `name`, through every nested body."""
+    for st in body:
+        if isinstance(st, N.Call) and st.name == name:
+            return st
+        for attr in ("body", "then", "orelse"):
+            nested = getattr(st, attr, None)
+            if isinstance(nested, list):
+                found = _find_call(nested, name)
+                if found is not None:
+                    return found
+    return None
 
 
 def _find_setting(body: list, name: str):

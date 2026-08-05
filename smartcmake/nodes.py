@@ -90,6 +90,25 @@ class Fetch:
 
 
 @dataclass
+class Install:
+    """`install { targets: [...] runtime: "bin" }` -> one install() command."""
+    body: list
+    comments: list = field(default_factory=list)
+    line: int = 0
+
+
+@dataclass
+class Function:
+    """A CMake function(). Parameters are bound in the body, so `target_name`
+    reads as `${target_name}` without going through `vars.`."""
+    name: str
+    params: list
+    body: list
+    comments: list = field(default_factory=list)
+    line: int = 0
+
+
+@dataclass
 class CommentBlock:
     """A free-standing comment (one not sitting directly above a statement)."""
     lines: list

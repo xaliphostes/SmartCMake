@@ -1,0 +1,10 @@
+# A tetrahedron. `vn` lines and comments are skipped by the reader.
+v 0 0 0
+v 1 0 0
+v 0 1 0
+v 0 0 1
+vn 0 0 1
+f 1 2 3
+f 1 2 4
+f 1 3 4
+f 2 3 4

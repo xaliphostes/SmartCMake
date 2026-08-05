@@ -1,0 +1,21 @@
+// Fetches GoogleTest and pulls in gtest_discover_tests(), so the suites can
+// be declared. Written out explicitly, so SmartCMake does not insert them.
+//
+// Two things deliberately stay out of this function:
+//
+//   enableTesting() — CMake honours enable_testing() at directory scope only.
+//     Inside a function it is accepted and then quietly emits no
+//     CTestTestfile.cmake, so every test vanishes with no error. The caller
+//     does it. (scmake rejects it here rather than let that happen.)
+//
+//   the name `enableTesting` — that is a built-in statement, and a function
+//     may not shadow one, or calls would reach the built-in instead.
+function use_googletest() {
+    fetch googletest {
+        git: "https://github.com/google/googletest.git"
+        tag: "v1.15.2"
+        options: { INSTALL_GTEST: false }
+    }
+
+    include("GoogleTest")
+}

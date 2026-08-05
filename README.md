@@ -1,5 +1,9 @@
 # SmartCMake
 
+<center>
+    <img src="media/logo.png" alt="drawing" width="200"/><br>
+</center><br/><br/>
+
 A small TypeScript-flavoured language that compiles to `CMakeLists.txt`.
 
 You write `build.scmake`, run `scmake`, and get a plain `CMakeLists.txt` that
@@ -13,9 +17,7 @@ build.scmake  ──scmake──▶  CMakeLists.txt  ──cmake──▶  build
 
 ## Why
 
-CMake's language has no data structures and no loops worth using, so build files
-grow by copy-paste. For example, Rosetta's test suite is 197 lines of CMake describing 18
-targets that differ only by name:
+CMake's language has no data structures and no loops worth using, so build files grow by copy-paste. For example, Rosetta's test suite is 197 lines of CMake describing 18 targets that differ only by name:
 
 ```cmake
 add_executable(matrix matrix.cpp)
@@ -40,9 +42,7 @@ for (suite of SUITES) {
 }
 ```
 
-The full translation is in `examples/rosetta-tests.scmake`; it regenerates
-rosetta's `tests/CMakeLists.txt` command-for-command (verified: 109 commands
-either side, configures and builds with the real toolchain).
+The full translation is in `examples/rosetta-tests scmake`; it regenerates rosetta's `tests/CMakeLists.txt` command-for-command (verified: 109 commands either side, configures and builds with the real toolchain).
 
 ## Install
 
@@ -80,12 +80,9 @@ Two kinds of logic look similar and mean different things:
 | | runs | ends up in the output |
 |---|---|---|
 | `const`, `for`, `if` | **when you run `scmake`** | no — they expand away |
-| `set`, `when` | when CMake configures | yes — real `set()` / `if()` |
+| `set`, `when`, `function` | when CMake configures | yes — real `set()` / `if()` / `function()` |
 
-So `if` picks a branch now, at compile time, and only the winner is written out.
-`when` writes a literal `if()/else()/endif()` block that CMake decides later.
-Use `if` for "which targets exist"; use `when` for "what the user's machine
-looks like".
+So `if` picks a branch now, at compile time, and only the winner is written out. `when` writes a literal `if()/else()/endif()` block that CMake decides later. Use `if` for "which targets exist"; use `when` for "what the user's machine looks like".
 
 ## Language reference
 
@@ -152,8 +149,7 @@ Inside a target body:
 | `discoverTests()` | `gtest_discover_tests(<target>)` |
 | `alias("Ns::name")` | `add_library(Ns::name ALIAS <target>)` |
 
-`VIS` is `PRIVATE` (the default), `PUBLIC`, or `INTERFACE`; an `interface`
-target defaults to `INTERFACE`.
+`VIS` is `PRIVATE` (the default), `PUBLIC`, or `INTERFACE`; an `interface` target defaults to `INTERFACE`.
 
 ### Dependencies
 
@@ -165,11 +161,9 @@ fetch googletest {
 }
 ```
 
-emits `include(FetchContent)` once, then `FetchContent_Declare` /
-`FetchContent_MakeAvailable`. `url`, `hash` and `dir` are accepted too.
+emits `include(FetchContent)` once, then `FetchContent_Declare` / `FetchContent_MakeAvailable`. `url`, `hash` and `dir` are accepted too.
 
-Using `discoverTests()` anywhere makes SmartCMake insert `enable_testing()` and
-`include(GoogleTest)` above the first target, unless you wrote them yourself.
+Using `discoverTests()` anywhere makes SmartCMake insert `enable_testing()` and `include(GoogleTest)` above the first target, unless you wrote them yourself.
 
 ### Variables and references
 
@@ -211,14 +205,86 @@ when (!cmake.CXX_COMPILER) {                    // decided by CMake
 }
 ```
 
-`when` conditions translate rather than evaluate: `!` → `NOT`, `&&` → `AND`,
-`||` → `OR`, `==` on strings → `STREQUAL` (on numbers → `EQUAL`), and
-`defined(x)`, `exists(p)`, `target(t)`, `command(c)` → `DEFINED`, `EXISTS`,
-`TARGET`, `COMMAND`. String literals in conditions are always quoted, so a
-value that happens to match a variable name is not silently re-read as one.
+`when` conditions translate rather than evaluate: `!` → `NOT`, `&&` → `AND`, `||` → `OR`, `==` on strings → `STREQUAL` (on numbers → `EQUAL`), and `defined(x)`, `exists(p)`, `target(t)`, `command(c)` → `DEFINED`, `EXISTS`, `TARGET`, `COMMAND`. String literals in conditions are always quoted, so a value that happens to match a variable name is not silently re-read as one.
 
-Built-in transpile-time functions: `upper`, `lower`, `join`, `replace`, `len`,
-`get`. Lists and strings concatenate with `+`; `.length` works on lists.
+Built-in transpile-time functions: `upper`, `lower`, `join`, `replace`, `len`, `get`. Lists and strings concatenate with `+`; `.length` works on lists.
+
+### Installing
+
+```ts
+install {
+    targets: [core, app]
+    export: "ToolkitTargets"
+    runtime: "bin"
+    archive: "lib"
+    includes: "include"
+}
+
+install { directory: "include/" destination: "include" }
+install { export: "ToolkitTargets" destination: "lib/cmake/toolkit" namespace: "T::" }
+```
+
+Inside a target block the subject is implied, which is usually what you want:
+
+```ts
+executable app {
+    sources: ["main.cpp"]
+    install { runtime: "bin" }        // install(TARGETS app RUNTIME DESTINATION bin)
+}
+```
+
+Exactly one of `targets`, `files`, `programs`, `directory` or `export` says what is being installed — except that alongside `targets`, `export` names the export set rather than being the subject. The rest are modifiers:
+
+| setting | emits |
+|---|---|
+| `runtime:` / `library:` / `archive:` / `bundle:` / `framework:` / `includes:` | `RUNTIME DESTINATION ...` and friends |
+| `destination:` | `DESTINATION` |
+| `namespace:` / `file:` / `rename:` / `component:` | `NAMESPACE` / `FILE` / `RENAME` / `COMPONENT` |
+| `configurations:` / `permissions:` / `pattern:` | the matching keyword |
+| `optional: true` / `excludeFromAll: true` | `OPTIONAL` / `EXCLUDE_FROM_ALL` |
+
+CMake's `install()` is order-sensitive, so the arguments come out in its order, not the order you wrote them. Anything not in the table above is a compile error; `raw` covers the rest.
+
+### Functions
+
+```ts
+function add_genepi_library(target_name) {
+    library(target_name)(SHARED) {
+        sources: [ARGN, vars.CMAKE_JS_SRC]
+        include(PUBLIC): [`${vars.PROJECT_SOURCE_DIR}/include`]
+        properties: { PREFIX: "", SUFFIX: ".node" }
+        link(PUBLIC): [genepi.genepi]
+    }
+}
+
+add_genepi_library("mymod", "src.cpp")
+```
+
+emits a real `function()` / `endfunction()` pair, so the body runs when CMake configures — not when you run `scmake`. Inside it the parameters are bound to their own expansions, along with `ARGC`, `ARGN` and `ARGV`: writing `target_name` gives `${target_name}` without going through `vars.`. That is what lets the whole target vocabulary work inside a function body.
+
+The name is emitted **verbatim**, so `function add_genepi_library(...)` is what CMake callers see. It is not camelCase-converted the way settings are, because the name is public API that hand-written CMake may call.
+
+A function must be declared before it is called, which is also CMake's rule. Calling something undeclared is still an error rather than a guess; use `cmake("some_command", ...)` for commands defined outside SmartCMake.
+
+Not covered yet: `PARENT_SCOPE` returns and `cmake_parse_arguments`. Both are reachable through `raw`.
+
+### Multiple files
+
+```ts
+#include "cmake/utils.scmake"
+```
+
+splices that file's generated CMake in at this point, and its `const`s and functions stay visible afterwards. Paths are relative to the file doing the including, and cycles are reported rather than followed.
+
+It is a splice, not an import-once: including the same file twice emits its commands twice, exactly as `#include` does in C. The `include("GNUInstallDirs")` *call* is unrelated — that one emits a CMake `include()` and does not read anything at compile time.
+
+To ship a reusable module instead of inlining it, compile it on its own — a file with no `project` block is perfectly valid:
+
+```sh
+scmake cmake/utils.scmake -o cmake/utils.cmake
+```
+
+and have consumers `include("cmake/utils.cmake")` at CMake level.
 
 ### Other statements
 
@@ -229,18 +295,14 @@ include("GNUInstallDirs")
 findPackage(Qt6, REQUIRED, COMPONENTS, Widgets)
 message("configuring…")
 cmake("some_command", ARG1, ARG2)   // any command not covered above
-raw "install(TARGETS app DESTINATION bin)"
+raw "set_directory_properties(PROPERTIES X 1)"
 ```
 
-`cmake(...)` and `raw` are the escape hatches: anything CMake can do stays
-reachable without waiting for the language to grow a keyword for it.
+`cmake(...)` and `raw` are the escape hatches: anything CMake can do stays reachable without waiting for the language to grow a keyword for it.
 
 ### Comments
 
-`//` and `/* */`. A comment block directly above a statement is carried into the
-generated CMake as `#` lines; one separated by a blank line stays where it is.
-Comments on `const`/`for`/`if` are dropped, since those statements produce no
-CMake. `doc:` covers the case where the comment itself has to be generated.
+`//` and `/* */`. A comment block directly above a statement is carried into the generated CMake as `#` lines; one separated by a blank line stays where it is. Comments on `const`/`for`/`if` are dropped, since those statements produce no CMake. `doc:` covers the case where the comment itself has to be generated.
 
 ## Keeping the two files in sync
 
@@ -252,27 +314,20 @@ scmake build.scmake --check    # non-zero if CMakeLists.txt is out of date
 
 ## Status
 
-Prototype (v0.1). It covers the vocabulary above and is exercised by 31 tests
-plus a real project; anything outside that vocabulary is a compile error, so
-you will not get silently wrong CMake — but you will meet the edges. `raw` and
-`cmake(...)` are there for those.
+Prototype (v0.1). It covers the vocabulary above and is exercised by 31 tests plus a real project; anything outside that vocabulary is a compile error, so you will not get silently wrong CMake — but you will meet the edges. `raw` and `cmake(...)` are there for those.
 
-Not yet: `install()` / `export()` as first-class settings, generator
-expressions as syntax, custom commands and targets, `find_package` component
-sugar, multi-file `import`, editor support.
+Not yet: `export()`, generator expressions as syntax, custom commands and targets, `find_package` component sugar, `macro()`, and `PARENT_SCOPE` /  `cmake_parse_arguments` inside `function`.
+
+Editor support so far is syntax highlighting only — see `editors/vscode` (symlink it into `~/.vscode/extensions/` or `vsce package` it). There is no language server, so `scmake` is still what tells you the file is valid.
 
 ```sh
 python3 -m unittest discover -s tests
 ```
 
-## Layout
+## License
 
-```
-smartcmake/lexer.py     tokens, template literals, comment capture
-smartcmake/parser.py    recursive descent → AST
-smartcmake/nodes.py     AST node definitions
-smartcmake/emitter.py   evaluation + CMake generation
-smartcmake/cli.py       the `scmake` command
-examples/               hello.scmake, rosetta-tests.scmake
-tests/                  unittest suite
-```
+[MIT](./LICENSE)
+
+## Author
+
+[Xaliphostes](https://github.com/xaliphostes)

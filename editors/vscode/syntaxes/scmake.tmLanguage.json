@@ -1,0 +1,418 @@
+{
+  "$schema": "https://raw.githubusercontent.com/martinring/tmlanguage/master/tmlanguage.json",
+  "name": "SmartCMake",
+  "scopeName": "source.scmake",
+  "fileTypes": ["scmake"],
+  "patterns": [
+    { "include": "#comments" },
+    { "include": "#preprocessor" },
+    { "include": "#declarations" },
+    { "include": "#keywords" },
+    { "include": "#strings" },
+    { "include": "#numbers" },
+    { "include": "#settings" },
+    { "include": "#namespaces" },
+    { "include": "#constants" },
+    { "include": "#functions" },
+    { "include": "#member-access" },
+    { "include": "#identifiers" },
+    { "include": "#operators" },
+    { "include": "#punctuation" }
+  ],
+
+  "repository": {
+    "comments": {
+      "patterns": [
+        {
+          "name": "comment.block.scmake",
+          "begin": "/\\*",
+          "beginCaptures": {
+            "0": { "name": "punctuation.definition.comment.begin.scmake" }
+          },
+          "end": "\\*/",
+          "endCaptures": {
+            "0": { "name": "punctuation.definition.comment.end.scmake" }
+          }
+        },
+        {
+          "name": "comment.line.double-slash.scmake",
+          "begin": "//",
+          "beginCaptures": {
+            "0": { "name": "punctuation.definition.comment.scmake" }
+          },
+          "end": "$"
+        }
+      ]
+    },
+
+    "preprocessor": {
+      "patterns": [
+        {
+          "comment": "#include \"cmake/utils.scmake\" — compile-time splice",
+          "name": "meta.preprocessor.include.scmake",
+          "begin": "^\\s*(#)\\s*(include)\\b",
+          "beginCaptures": {
+            "1": { "name": "punctuation.definition.keyword.scmake" },
+            "2": { "name": "keyword.control.import.scmake" }
+          },
+          "end": "$",
+          "patterns": [
+            { "include": "#comments" },
+            { "include": "#strings" }
+          ]
+        }
+      ]
+    },
+
+    "declarations": {
+      "patterns": [
+        {
+          "comment": "function add_genepi_library(target_name) { ... }",
+          "match": "\\b(function)\\s+([A-Za-z_][A-Za-z0-9_]*)",
+          "captures": {
+            "1": { "name": "storage.type.function.scmake" },
+            "2": { "name": "entity.name.function.declaration.scmake" }
+          }
+        },
+        {
+          "comment": "project MyApp {  /  project \"my-app\" {",
+          "match": "\\b(project)\\s+(?:([A-Za-z_][A-Za-z0-9_]*)|(?=[\"'`]))",
+          "captures": {
+            "1": { "name": "keyword.declaration.project.scmake" },
+            "2": { "name": "entity.name.type.project.scmake" }
+          }
+        },
+        {
+          "comment": "executable app {  /  library core(SHARED) {  /  interface hdrs {",
+          "match": "\\b(executable|library|interface)\\s+([A-Za-z_][A-Za-z0-9_]*)\\s*(?:(\\()\\s*(STATIC|SHARED|MODULE|OBJECT|INTERFACE)\\s*(\\)))?",
+          "captures": {
+            "1": { "name": "storage.type.target.scmake" },
+            "2": { "name": "entity.name.function.target.scmake" },
+            "3": { "name": "punctuation.definition.parameters.begin.scmake" },
+            "4": { "name": "storage.modifier.library-type.scmake" },
+            "5": { "name": "punctuation.definition.parameters.end.scmake" }
+          }
+        },
+        {
+          "comment": "fetch googletest {",
+          "match": "\\b(fetch)\\s+([A-Za-z_][A-Za-z0-9_]*)",
+          "captures": {
+            "1": { "name": "keyword.declaration.fetch.scmake" },
+            "2": { "name": "entity.name.type.dependency.scmake" }
+          }
+        },
+        {
+          "comment": "const NAME = ... (transpile-time, vanishes from the output)",
+          "match": "\\b(const)\\s+([A-Za-z_][A-Za-z0-9_]*)",
+          "captures": {
+            "1": { "name": "storage.type.const.scmake" },
+            "2": { "name": "variable.other.constant.scmake" }
+          }
+        },
+        {
+          "comment": "set NAME = ... (a real CMake set())",
+          "match": "\\b(set)\\s+([A-Za-z_][A-Za-z0-9_]*)",
+          "captures": {
+            "1": { "name": "keyword.declaration.set.scmake" },
+            "2": { "name": "variable.other.cmake.scmake" }
+          }
+        },
+        {
+          "comment": "for (item of LIST)",
+          "match": "\\b(for)\\s*(\\()\\s*([A-Za-z_][A-Za-z0-9_]*)\\s+(of)\\b",
+          "captures": {
+            "1": { "name": "keyword.control.loop.scmake" },
+            "2": { "name": "punctuation.section.parens.begin.scmake" },
+            "3": { "name": "variable.other.readwrite.scmake" },
+            "4": { "name": "keyword.control.of.scmake" }
+          }
+        }
+      ]
+    },
+
+    "keywords": {
+      "patterns": [
+        {
+          "comment": "if/else are transpile-time; when/else become a real if()/endif()",
+          "name": "keyword.control.conditional.scmake",
+          "match": "\\b(if|else|when)\\b"
+        },
+        {
+          "name": "keyword.control.loop.scmake",
+          "match": "\\b(for|of)\\b"
+        },
+        {
+          "name": "keyword.declaration.scmake",
+          "match": "\\b(project|fetch)\\b"
+        },
+        {
+          "comment": "escape hatch: raw \"install(TARGETS app DESTINATION bin)\"",
+          "name": "keyword.other.raw.scmake",
+          "match": "\\braw\\b"
+        },
+        {
+          "name": "storage.type.target.scmake",
+          "match": "\\b(executable|library|interface)\\b"
+        },
+        {
+          "name": "storage.type.const.scmake",
+          "match": "\\bconst\\b"
+        },
+        {
+          "name": "storage.type.function.scmake",
+          "match": "\\bfunction\\b"
+        },
+        {
+          "comment": "install { targets: [...] runtime: \"bin\" }",
+          "name": "keyword.other.install.scmake",
+          "match": "\\binstall\\b(?=\\s*\\{)"
+        },
+        {
+          "name": "keyword.declaration.set.scmake",
+          "match": "\\bset\\b"
+        }
+      ]
+    },
+
+    "settings": {
+      "patterns": [
+        {
+          "comment": "known setting, with an optional visibility qualifier: link(PUBLIC):",
+          "match": "\\b(cmakeMinimum|version|languages|description|cxx|c|standardRequired|extensions|scanForModules|buildType|positionIndependent|exportCompileCommands|cxxCompiler|cCompiler|prefixPath|runtimeOutputDir|libraryOutputDir|archiveOutputDir|compileOptions|linkOptions|defines|includeDirs|linkDirs|includes|include|link|features|sources|doc|properties|git|tag|url|hash|directory|dir|options|targets|files|file|programs|destination|export|namespace|rename|component|configurations|permissions|pattern|optional|excludeFromAll|runtime|library|archive|bundle|framework)\\s*(?:(\\()\\s*(PRIVATE|PUBLIC|INTERFACE)\\s*(\\)))?\\s*(?=:)",
+          "captures": {
+            "1": { "name": "support.type.property-name.scmake" },
+            "2": { "name": "punctuation.definition.parameters.begin.scmake" },
+            "3": { "name": "storage.modifier.visibility.scmake" },
+            "4": { "name": "punctuation.definition.parameters.end.scmake" }
+          }
+        },
+        {
+          "comment": "any other key: value pair (object literals, set_target_properties keys)",
+          "match": "\\b([A-Za-z_][A-Za-z0-9_]*)\\s*(?:(\\()\\s*(PRIVATE|PUBLIC|INTERFACE)\\s*(\\)))?\\s*(?=:)",
+          "captures": {
+            "1": { "name": "variable.other.property.scmake" },
+            "2": { "name": "punctuation.definition.parameters.begin.scmake" },
+            "3": { "name": "storage.modifier.visibility.scmake" },
+            "4": { "name": "punctuation.definition.parameters.end.scmake" }
+          }
+        }
+      ]
+    },
+
+    "namespaces": {
+      "patterns": [
+        {
+          "comment": "cmake.SOURCE_DIR -> ${CMAKE_SOURCE_DIR}, env.HOME -> $ENV{HOME}, vars.X -> ${X}",
+          "match": "\\b(cmake|env|vars)(\\.)([A-Za-z_][A-Za-z0-9_]*)",
+          "captures": {
+            "1": { "name": "support.class.builtin-namespace.scmake" },
+            "2": { "name": "punctuation.accessor.scmake" },
+            "3": { "name": "variable.other.cmake.scmake" }
+          }
+        }
+      ]
+    },
+
+    "constants": {
+      "patterns": [
+        {
+          "name": "constant.language.boolean.scmake",
+          "match": "\\b(true|false)\\b"
+        },
+        {
+          "name": "storage.modifier.visibility.scmake",
+          "match": "\\b(PRIVATE|PUBLIC|INTERFACE)\\b"
+        },
+        {
+          "name": "storage.modifier.library-type.scmake",
+          "match": "\\b(STATIC|SHARED|MODULE|OBJECT)\\b"
+        },
+        {
+          "comment": "cache() types, find_package words and language names",
+          "name": "constant.language.cmake.scmake",
+          "match": "\\b(PATH|FILEPATH|STRING|BOOL|INTERNAL|FORCE|REQUIRED|QUIET|COMPONENTS|OPTIONAL_COMPONENTS|EXACT|CONFIG|CXX|CUDA|OBJC|OBJCXX|ASM|Fortran|ISPC)\\b"
+        },
+        {
+          "comment": "a bare `C` is the C language / the `c:` standard setting's value",
+          "name": "constant.language.cmake.scmake",
+          "match": "(?<![A-Za-z0-9_.])C(?![A-Za-z0-9_])"
+        },
+        {
+          "comment": "SCREAMING_CASE reads as a constant (const INCLUDE, const SUITES, ...)",
+          "name": "variable.other.constant.scmake",
+          "match": "\\b[A-Z][A-Z0-9_]*\\b"
+        }
+      ]
+    },
+
+    "functions": {
+      "patterns": [
+        {
+          "comment": "transpile-time helpers",
+          "match": "\\b(upper|lower|join|replace|len|get)\\s*(?=\\()",
+          "name": "support.function.builtin.scmake"
+        },
+        {
+          "comment": "condition predicates: defined(x) exists(p) target(t) command(c)",
+          "match": "\\b(defined|exists|target|command)\\s*(?=\\()",
+          "name": "support.function.condition.scmake"
+        },
+        {
+          "comment": "statements that emit a CMake command",
+          "match": "\\b(enableTesting|subdirectory|include|findPackage|message|discoverTests|alias|cmake)\\s*(?=\\()",
+          "name": "support.function.statement.scmake"
+        },
+        {
+          "comment": "set X = ... cache(PATH, \"doc\")",
+          "match": "\\b(cache)\\s*(?=\\()",
+          "name": "keyword.other.cache.scmake"
+        },
+        {
+          "match": "\\b([A-Za-z_][A-Za-z0-9_]*)\\s*(?=\\()",
+          "name": "entity.name.function.scmake"
+        }
+      ]
+    },
+
+    "member-access": {
+      "patterns": [
+        {
+          "comment": "GTest.gtest_main -> GTest::gtest_main; also suite.name on records",
+          "match": "\\b([A-Za-z_][A-Za-z0-9_]*)(\\.)([A-Za-z_][A-Za-z0-9_]*)",
+          "captures": {
+            "1": { "name": "entity.name.namespace.scmake" },
+            "2": { "name": "punctuation.accessor.scmake" },
+            "3": { "name": "variable.other.member.scmake" }
+          }
+        },
+        {
+          "comment": ".length on lists",
+          "match": "(\\.)(length)\\b",
+          "captures": {
+            "1": { "name": "punctuation.accessor.scmake" },
+            "2": { "name": "support.variable.property.scmake" }
+          }
+        }
+      ]
+    },
+
+    "identifiers": {
+      "patterns": [
+        {
+          "name": "variable.other.readwrite.scmake",
+          "match": "\\b[A-Za-z_][A-Za-z0-9_]*\\b"
+        }
+      ]
+    },
+
+    "operators": {
+      "patterns": [
+        { "name": "keyword.operator.comparison.scmake", "match": "==|!=|>=|<=|<|>" },
+        { "name": "keyword.operator.logical.scmake", "match": "&&|\\|\\||!" },
+        { "name": "keyword.operator.arithmetic.scmake", "match": "\\+" },
+        { "name": "keyword.operator.assignment.scmake", "match": "=" }
+      ]
+    },
+
+    "punctuation": {
+      "patterns": [
+        { "name": "punctuation.definition.block.scmake", "match": "[{}]" },
+        { "name": "punctuation.definition.list.scmake", "match": "[\\[\\]]" },
+        { "name": "punctuation.section.parens.scmake", "match": "[()]" },
+        { "name": "punctuation.separator.comma.scmake", "match": "," },
+        { "name": "punctuation.separator.key-value.scmake", "match": ":" },
+        { "name": "punctuation.accessor.scmake", "match": "\\." }
+      ]
+    },
+
+    "numbers": {
+      "patterns": [
+        {
+          "name": "constant.numeric.scmake",
+          "match": "\\b\\d+(?:\\.\\d+)*\\b"
+        }
+      ]
+    },
+
+    "strings": {
+      "patterns": [
+        { "include": "#template-string" },
+        { "include": "#double-string" },
+        { "include": "#single-string" }
+      ]
+    },
+
+    "template-string": {
+      "name": "string.template.scmake",
+      "begin": "`",
+      "beginCaptures": {
+        "0": { "name": "punctuation.definition.string.begin.scmake" }
+      },
+      "end": "`",
+      "endCaptures": {
+        "0": { "name": "punctuation.definition.string.end.scmake" }
+      },
+      "patterns": [
+        { "include": "#string-escape" },
+        { "include": "#template-substitution" }
+      ]
+    },
+
+    "template-substitution": {
+      "name": "meta.template.expression.scmake",
+      "begin": "\\$\\{",
+      "beginCaptures": {
+        "0": { "name": "punctuation.definition.template-expression.begin.scmake" }
+      },
+      "end": "\\}",
+      "endCaptures": {
+        "0": { "name": "punctuation.definition.template-expression.end.scmake" }
+      },
+      "contentName": "meta.embedded.line.scmake",
+      "patterns": [
+        { "include": "#strings" },
+        { "include": "#numbers" },
+        { "include": "#namespaces" },
+        { "include": "#constants" },
+        { "include": "#functions" },
+        { "include": "#member-access" },
+        { "include": "#identifiers" },
+        { "include": "#operators" },
+        { "include": "#punctuation" }
+      ]
+    },
+
+    "double-string": {
+      "name": "string.quoted.double.scmake",
+      "begin": "\"",
+      "beginCaptures": {
+        "0": { "name": "punctuation.definition.string.begin.scmake" }
+      },
+      "end": "\"|(?<!\\\\)(\\n)",
+      "endCaptures": {
+        "0": { "name": "punctuation.definition.string.end.scmake" },
+        "1": { "name": "invalid.illegal.newline.scmake" }
+      },
+      "patterns": [{ "include": "#string-escape" }]
+    },
+
+    "single-string": {
+      "name": "string.quoted.single.scmake",
+      "begin": "'",
+      "beginCaptures": {
+        "0": { "name": "punctuation.definition.string.begin.scmake" }
+      },
+      "end": "'|(?<!\\\\)(\\n)",
+      "endCaptures": {
+        "0": { "name": "punctuation.definition.string.end.scmake" },
+        "1": { "name": "invalid.illegal.newline.scmake" }
+      },
+      "patterns": [{ "include": "#string-escape" }]
+    },
+
+    "string-escape": {
+      "name": "constant.character.escape.scmake",
+      "match": "\\\\."
+    }
+  }
+}
