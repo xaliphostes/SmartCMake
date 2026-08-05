@@ -6,10 +6,7 @@
 
 A small TypeScript-flavoured language that compiles to `CMakeLists.txt`.
 
-You write `build.scmake`, run `scmake`, and get a plain `CMakeLists.txt` that
-any CMake ≥ 3.20 can consume. Nothing at build time depends on SmartCMake — the
-relationship is exactly TypeScript → JavaScript: you keep the readable source,
-you ship the generated artifact, and consumers never need the compiler.
+You write `build.scmake`, run `scmake`, and get a plain `CMakeLists.txt` that any CMake ≥ 3.20 can consume. Nothing at build time depends on SmartCMake — the relationship is exactly TypeScript → JavaScript: you keep the readable source, you ship the generated artifact, and consumers never need the compiler.
 
 ```
 build.scmake  ──scmake──▶  CMakeLists.txt  ──cmake──▶  build system
