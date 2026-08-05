@@ -1,0 +1,14 @@
+function install_library(name, exportSet) {
+    install {
+        directory: "include/"
+        destination: "include"
+    }
+    install {
+        targets: [name]
+        export: exportSet
+        archive: "lib"
+        library: "lib"
+        runtime: "bin"
+        includes: "include"
+    }
+}

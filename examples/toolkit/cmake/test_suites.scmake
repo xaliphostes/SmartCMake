@@ -1,0 +1,22 @@
+// The test block from build.scmake, parameterised by the list of suites:
+//
+//   const TEST_SUITES = ["mesh", "io"]
+//   #include "cmake/test_suites.scmake"
+//
+// A `#include` rather than a `function`, because the loop below is
+// transpile-time — it expands before CMake runs, so its list must be a value
+// scmake already holds. A function parameter is not one: inside a CMake
+// function `suites` is the string ${suites}, and scmake stops with
+// "for (... of ...) needs a list". `#include` splices these statements at the
+// call site instead, where the caller's const is in scope. The price is that
+// this file, unlike helpers.scmake, does not compile on its own.
+when (vars.TOOLKIT_BUILD_TESTS) {
+    // Stays here rather than in use_googletest(): enable_testing() only counts
+    // at directory scope. See googletest.scmake.
+    enableTesting()
+    use_googletest()
+
+    for (suite of TEST_SUITES) {
+        add_test_suite(`test_${suite}`, `tests/${suite}_test.cpp`)
+    }
+}
