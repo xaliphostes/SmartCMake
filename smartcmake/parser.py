@@ -11,6 +11,24 @@ from .lexer import Comment, Token, tokenize
 TARGET_KEYWORDS = ("executable", "library", "interface")
 
 
+def _trim_blank_edges(lines: list[str]) -> list[str]:
+    """Drop empty lines at the top and bottom of a comment block. `/** ... */`
+    and `/*\\n ... \\n*/` contribute nothing on the delimiter lines themselves,
+    which would otherwise surface as bare `#` lines wrapping the text. Interior
+    blanks are kept — those are deliberate paragraph breaks.
+
+    The blank lines still have to reach here rather than be dropped in the
+    lexer: attachment to the statement below is decided by line number, and a
+    `*/` sitting directly above the statement is what makes the block attach.
+    """
+    start, end = 0, len(lines)
+    while start < end and not lines[start]:
+        start += 1
+    while end > start and not lines[end - 1]:
+        end -= 1
+    return lines[start:end]
+
+
 def parse(src: str, filename: str = "<scmake>", base_dir: Path | None = None,
           stack: tuple[Path, ...] = ()) -> list:
     toks, comments = tokenize(src, filename)
@@ -62,8 +80,12 @@ class Parser:
         return ScmakeError(msg, tok.line, tok.col, self.filename)
 
     def take_comments(self, before_line: int) -> list[Comment]:
+        # `<=` rather than `<` so that `/* note */ executable app { ... }` is
+        # claimed by the statement it sits on. Without it the comment outlives
+        # this statement and lands on the *next* one, which reads as a bug
+        # specific to block comments — `//` cannot precede code on a line.
         out = []
-        while self.ci < len(self.comments) and self.comments[self.ci].line < before_line:
+        while self.ci < len(self.comments) and self.comments[self.ci].line <= before_line:
             out.append(self.comments[self.ci])
             self.ci += 1
         return out
@@ -81,8 +103,12 @@ class Parser:
                 groups.append([c])
         attached: list[str] = []
         if groups[-1][-1].line == stmt_line - 1:
-            attached = [c.text for c in groups.pop()]
-        floating = [N.CommentBlock([c.text for c in g], line=g[0].line) for g in groups]
+            attached = _trim_blank_edges([c.text for c in groups.pop()])
+        floating = []
+        for g in groups:
+            text = _trim_blank_edges([c.text for c in g])
+            if text:  # a block that was nothing but its own delimiters
+                floating.append(N.CommentBlock(text, line=g[0].line))
         return floating, attached
 
     # --- statements -------------------------------------------------------
