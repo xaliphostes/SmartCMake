@@ -2,7 +2,7 @@
 
 <center>
     <img src="media/logo2.png" alt="drawing" width="200"/><br>
-</center><br/><br/>
+</center>
 
 A small TypeScript-flavoured language that compiles to `CMakeLists.txt`.
 
