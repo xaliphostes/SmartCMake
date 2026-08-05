@@ -299,7 +299,39 @@ raw "set_directory_properties(PROPERTIES X 1)"
 
 ### Comments
 
-`//` and `/* */`. A comment block directly above a statement is carried into the generated CMake as `#` lines; one separated by a blank line stays where it is. Comments on `const`/`for`/`if` are dropped, since those statements produce no CMake. `doc:` covers the case where the comment itself has to be generated.
+`//`, `/* ... */` and `/** ... */`, each of which may span as many lines as you
+like:
+
+```ts
+/**
+ * Everything downstream links against this.
+ *
+ * Second paragraph.
+ */
+library core(STATIC) { sources: ["a.cpp"] }
+```
+
+```cmake
+# Everything downstream links against this.
+#
+# Second paragraph.
+add_library(core STATIC a.cpp)
+```
+
+A leading `*` on a continuation line is stripped, and the `/**` and `*/` lines
+contribute nothing, so a doc block does not come out wrapped in bare `#` lines.
+Blank lines *inside* the block are kept — those are paragraph breaks.
+
+A comment block directly above a statement is carried into the generated CMake
+as `#` lines; one separated by a blank line stays where it is. A block comment
+that precedes code on the same line — `/* note */ executable app { ... }` —
+belongs to that statement. Comments on `const`/`for`/`if` are dropped, since
+those statements produce no CMake. `doc:` covers the case where the comment
+itself has to be generated.
+
+One limitation: a comment *after* code on a line, or inside a multi-line
+expression, is emitted near the following statement rather than the one it
+trails, because a statement's extent is tracked by its first line only.
 
 ## Keeping the two files in sync
 

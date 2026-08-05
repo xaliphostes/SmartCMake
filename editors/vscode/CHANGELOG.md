@@ -5,6 +5,7 @@
 Initial release.
 
 - Syntax highlighting for `.scmake` (TextMate grammar, `source.scmake`).
+- `/** ... */` scoped as `comment.block.documentation`, distinct from `/* ... */`.
 - Language configuration: `//` and `/* */` comments, bracket matching and
   auto-closing for `{}`/`[]`/`()`/`"`/`'`/`` ` ``, indentation rules.
 - `function` declarations, `install { ... }` blocks, and the `#include "..."`
