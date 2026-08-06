@@ -146,7 +146,11 @@ class Parser:
             raise self.error(f"expected a statement, got {tok.value!r}")
 
         kw = tok.value
-        if kw == "function":
+        # `library: "lib"` inside an install block is a setting, not a target
+        # declaration. A keyword sitting right before ':' is always a key.
+        if self.peek(1).kind == "PUNCT" and self.peek(1).value == ":":
+            st = self.parse_setting_or_call()
+        elif kw == "function":
             st = self.parse_function()
         elif kw == "install" and self.peek(1).kind == "PUNCT" and self.peek(1).value == "{":
             self.advance()

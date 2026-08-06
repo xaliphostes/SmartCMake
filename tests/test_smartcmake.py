@@ -276,6 +276,19 @@ class TestInstall(unittest.TestCase):
             compile_body('install { directory: "include/"\ndestination: "include" }'),
             "install(DIRECTORY include/ DESTINATION include)")
 
+    def test_library_key_is_a_setting_not_a_target_declaration(self):
+        # `library` also starts a target block, but in setting position
+        # (right before ':') it is the LIBRARY destination.
+        self.assertEqual(
+            compile_body('install { targets: [core]\nlibrary: "lib"\n'
+                         'archive: "lib"\nruntime: "bin" }'),
+            "install(\n"
+            "    TARGETS core\n"
+            "    RUNTIME DESTINATION bin\n"
+            "    LIBRARY DESTINATION lib\n"
+            "    ARCHIVE DESTINATION lib\n"
+            ")")
+
     def test_arguments_follow_cmake_order_not_source_order(self):
         # destination is written first but must come out after EXPORT.
         self.assertEqual(
