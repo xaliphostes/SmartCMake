@@ -5,3 +5,4 @@ CMakeLists*
 build/
 .pytest_cache
 dist/
+smartcmake/__init__.py
