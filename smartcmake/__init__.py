@@ -4,7 +4,7 @@ from .emitter import emit
 from .errors import ScmakeError
 from .parser import parse
 
-__version__ = "0.1.0"
+__version__ = "0.2.0"
 
 
 def compile_source(src: str, filename: str = "<scmake>") -> str:

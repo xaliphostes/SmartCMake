@@ -1,8 +1,8 @@
 # SmartCMake
 
-<center>
-    <img src="media/logo2.png" alt="drawing" width="200"/><br>
-</center>
+<p align="center">
+    <img src="https://raw.githubusercontent.com/Xaliphostes/SmartCMake/main/media/logo2.png" alt="SmartCMake" width="200"/>
+</p>
 
 **SmartCMake** is a compiled, structured language for authoring CMake projects. It adds abstraction and metaprogramming **without replacing CMake**.
 
@@ -438,7 +438,7 @@ scmake build.scmake --check    # non-zero if CMakeLists.txt is out of date
 
 ## Status
 
-Prototype (v0.1). It covers the vocabulary above and is exercised by 117 tests plus a real project; anything outside that vocabulary is a compile error, so you will not get silently wrong CMake — but you will meet the edges. `raw` and `cmake(...)` are there for those.
+Prototype (v0.2). It covers the vocabulary above and is exercised by 117 tests plus a real project; anything outside that vocabulary is a compile error, so you will not get silently wrong CMake — but you will meet the edges. `raw` and `cmake(...)` are there for those.
 
 Not yet: `export()`, generator expressions as syntax, custom commands and targets, `find_package` component sugar, `macro()`, and `PARENT_SCOPE` /  `cmake_parse_arguments` inside `function`.
 

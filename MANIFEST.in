@@ -1,0 +1,9 @@
+# setuptools' default sdist rules pick up `test*.py` but nothing else under
+# tests/, so tests/support.py — which every test module imports — was being
+# left out and the shipped suite could not run at all.
+recursive-include tests *.py
+
+# tests/test_examples.py compiles examples/rosetta-tests.scmake, so the sdist
+# has to carry the sources for its own suite to pass. Only *.scmake — the C++
+# and any local build/ trees stay out.
+recursive-include examples *.scmake

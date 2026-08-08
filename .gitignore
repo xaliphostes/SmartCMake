@@ -4,3 +4,4 @@ smartcmake.egg-info
 CMakeLists*
 build/
 .pytest_cache
+dist/

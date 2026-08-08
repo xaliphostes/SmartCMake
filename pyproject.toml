@@ -1,16 +1,45 @@
 [build-system]
-requires = ["setuptools>=61"]
+# >=77 for PEP 639 (`license` as an SPDX string plus `license-files`).
+requires = ["setuptools>=77"]
 build-backend = "setuptools.build_meta"
 
 [project]
 name = "smartcmake"
-version = "0.1.0"
-description = "A TypeScript-flavoured language that compiles to CMakeLists.txt"
+dynamic = ["version"]
+description = "A source language for CMake: build.scmake → CMakeLists.txt"
+readme = "README.md"
 requires-python = ">=3.10"
+license = "MIT"
+license-files = ["LICENSE"]
+authors = [{ name = "Xaliphostes" }]
+keywords = ["cmake", "build-system", "transpiler", "dsl", "code-generation"]
+# No `License ::` classifier: PyPI rejects it alongside the SPDX `license` field.
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Environment :: Console",
+    "Intended Audience :: Developers",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Topic :: Software Development :: Build Tools",
+    "Topic :: Software Development :: Code Generators",
+    "Topic :: Software Development :: Pre-processors",
+]
 dependencies = []
+
+[project.urls]
+Homepage = "https://github.com/Xaliphostes/SmartCMake"
+Repository = "https://github.com/Xaliphostes/SmartCMake"
+Issues = "https://github.com/Xaliphostes/SmartCMake/issues"
 
 [project.scripts]
 scmake = "smartcmake.cli:main"
+
+[tool.setuptools.dynamic]
+# One source of truth, so pyproject.toml and the package cannot drift apart.
+version = { attr = "smartcmake.__version__" }
 
 [tool.setuptools.packages.find]
 # Discovery rather than an explicit list, so a new sub-package (smartcmake.parsing)
