@@ -12,15 +12,15 @@ It compiles to ordinary CMakeLists.txt.**
 
 You write `build.scmake`, run `scmake`, and get a plain `CMakeLists.txt` that any CMake ≥ 3.20 can consume. Nothing at build time depends on SmartCMake — the relationship is exactly TypeScript → JavaScript: you keep the readable source, you ship the generated artifact, and consumers never need the compiler.
 
-|                                                   | SmartCMake    | Meson   | xmake         | Bazel  |
-| ------------------------------------------------- | ------------- | ------- | ------------- | ------ |
-| Remplace CMake                                    | ❌             | ✅       | ✅             | ✅      |
-| Génère CMake                                      | ✅             | ❌       | partiellement | ❌      |
-| DSL dédiée                                        | ✅             | ✅       | ✅             | ✅      |
-| Compatible écosystème CMake                       | **excellent** | bon     | bon           | faible |
-| Logique compile-time                              | **✅**         | limitée | ✅             | ✅      |
-| Peut abandonner SmartCMake après génération       | **✅**         | ❌       | ❌             | ❌      |
-| Facile à introduire dans un projet CMake existant | **très**      | moyen   | moyen         | faible |
+|                                            | SmartCMake    | Meson    | xmake    | Bazel |
+| ------------------------------------------ | ------------- | -------- | -------- | ----- |
+| Replaces CMake                             | ❌             | ✅        | ✅        | ✅     |
+| Generates CMake                            | ✅             | ❌        | partial  | ❌     |
+| Dedicated DSL                              | ✅             | ✅        | ✅        | ✅     |
+| CMake ecosystem compatibility              | **excellent** | good     | good     | poor  |
+| Compile-time logic                         | **✅**         | limited  | ✅        | ✅     |
+| Can drop the compiler after generating     | **✅**         | ❌        | ❌        | ❌     |
+| Easy to adopt in an existing CMake project | **very**      | moderate | moderate | poor  |
 
 
 ## Why
