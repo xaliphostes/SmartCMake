@@ -12,5 +12,8 @@ dependencies = []
 [project.scripts]
 scmake = "smartcmake.cli:main"
 
-[tool.setuptools]
-packages = ["smartcmake"]
+[tool.setuptools.packages.find]
+# Discovery rather than an explicit list, so a new sub-package (smartcmake.parsing)
+# does not silently fail to ship.
+include = ["smartcmake*"]
+namespaces = false

@@ -4,13 +4,11 @@
     <img src="media/logo2.png" alt="drawing" width="200"/><br>
 </center>
 
-**SmartCMake is a source language for CMake.**
-**It does not replace CMake.
-It compiles to ordinary CMakeLists.txt.**
+**SmartCMake** is a compiled, structured language for authoring CMake projects. It adds abstraction and metaprogramming **without replacing CMake**.
 
-> build.scmake → scmake → CMakeLists.txt → CMake
+---
 
-You write `build.scmake`, run `scmake`, and get a plain `CMakeLists.txt` that any CMake ≥ 3.20 can consume. Nothing at build time depends on SmartCMake — the relationship is exactly TypeScript → JavaScript: you keep the readable source, you ship the generated artifact, and consumers never need the compiler.
+You write `myProject.scmake`, run `scmake`, and get a plain `CMakeLists.txt` that any CMake ≥ 3.20 can consume. Nothing at build time depends on SmartCMake — the relationship is exactly TypeScript → JavaScript: you keep the readable source, you ship the generated artifact, and consumers never need the compiler.
 
 |                                            | SmartCMake    | Meson    | xmake    | Bazel |
 | ------------------------------------------ | ------------- | -------- | -------- | ----- |
@@ -22,42 +20,18 @@ You write `build.scmake`, run `scmake`, and get a plain `CMakeLists.txt` that an
 | Can drop the compiler after generating     | **✅**         | ❌        | ❌        | ❌     |
 | Easy to adopt in an existing CMake project | **very**      | moderate | moderate | poor  |
 
-
-## Why
-
-CMake's language has no data structures and no loops worth using, so build files grow by copy-paste. For example, Rosetta's test suite is 197 lines of CMake describing 18 targets that differ only by name:
-
-```cmake
-add_executable(matrix matrix.cpp)
-target_include_directories(matrix PRIVATE ${CMAKE_SOURCE_DIR}/../include)
-target_compile_options(matrix PRIVATE -fannotation-attributes)
-target_link_libraries(matrix PRIVATE GTest::gtest_main)
-gtest_discover_tests(matrix)
-# ... ×17 more
-```
-
-The same thing in SmartCMake:
-
-```ts
-for (suite of SUITES) {
-    executable(suite.name) {
-        sources: [`${suite.name}.cpp`]
-        include: [INCLUDE]
-        compileOptions: ["-fannotation-attributes"]
-        link: [GTest.gtest_main]
-        discoverTests()
-    }
-}
-```
-
-The full translation is in `examples/rosetta-tests scmake`; it regenerates rosetta's `tests/CMakeLists.txt` command-for-command (verified: 109 commands either side, configures and builds with the real toolchain).
-
 ## Install
 
 Pure Python 3.10+, no dependencies.
 
+From sources:
 ```sh
 pip install -e .        # provides the `scmake` command
+```
+
+From pip packages:
+```sh
+TODO
 ```
 
 Or run it straight from the checkout without installing:
@@ -464,7 +438,7 @@ scmake build.scmake --check    # non-zero if CMakeLists.txt is out of date
 
 ## Status
 
-Prototype (v0.1). It covers the vocabulary above and is exercised by 101 tests plus a real project; anything outside that vocabulary is a compile error, so you will not get silently wrong CMake — but you will meet the edges. `raw` and `cmake(...)` are there for those.
+Prototype (v0.1). It covers the vocabulary above and is exercised by 117 tests plus a real project; anything outside that vocabulary is a compile error, so you will not get silently wrong CMake — but you will meet the edges. `raw` and `cmake(...)` are there for those.
 
 Not yet: `export()`, generator expressions as syntax, custom commands and targets, `find_package` component sugar, `macro()`, and `PARENT_SCOPE` /  `cmake_parse_arguments` inside `function`.
 

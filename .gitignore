@@ -3,3 +3,4 @@ smartcmake.egg-info
 .DS_Store
 CMakeLists*
 build/
+.pytest_cache
