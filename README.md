@@ -4,13 +4,24 @@
     <img src="media/logo2.png" alt="drawing" width="200"/><br>
 </center>
 
-A small TypeScript-flavoured language that compiles to `CMakeLists.txt`.
+**SmartCMake is a source language for CMake.**
+**It does not replace CMake.
+It compiles to ordinary CMakeLists.txt.**
+
+> build.scmake → scmake → CMakeLists.txt → CMake
 
 You write `build.scmake`, run `scmake`, and get a plain `CMakeLists.txt` that any CMake ≥ 3.20 can consume. Nothing at build time depends on SmartCMake — the relationship is exactly TypeScript → JavaScript: you keep the readable source, you ship the generated artifact, and consumers never need the compiler.
 
-```
-build.scmake  ──scmake──▶  CMakeLists.txt  ──cmake──▶  build system
-```
+|                                                   | SmartCMake    | Meson   | xmake         | Bazel  |
+| ------------------------------------------------- | ------------- | ------- | ------------- | ------ |
+| Remplace CMake                                    | ❌             | ✅       | ✅             | ✅      |
+| Génère CMake                                      | ✅             | ❌       | partiellement | ❌      |
+| DSL dédiée                                        | ✅             | ✅       | ✅             | ✅      |
+| Compatible écosystème CMake                       | **excellent** | bon     | bon           | faible |
+| Logique compile-time                              | **✅**         | limitée | ✅             | ✅      |
+| Peut abandonner SmartCMake après génération       | **✅**         | ❌       | ❌             | ❌      |
+| Facile à introduire dans un projet CMake existant | **très**      | moyen   | moyen         | faible |
+
 
 ## Why
 
@@ -148,6 +159,57 @@ Inside a target body:
 
 `VIS` is `PRIVATE` (the default), `PUBLIC`, or `INTERFACE`; an `interface` target defaults to `INTERFACE`.
 
+### Targets as values
+
+Binding a target to a `const` declares it and hands back a handle, so later statements can name it:
+
+```ts
+const core = library("core")(SHARED) { sources: ["core.cpp"] }
+
+const app = executable("app") { sources: ["main.cpp"] }
+app.link(core)
+app.link(PUBLIC, fmt.fmt)          // a leading visibility is the qualifier
+app.properties({ OUTPUT_NAME: "demo" })
+app.discoverTests()
+```
+
+The name must be parenthesised here — `executable("app")`, not `executable app` — since the const is already naming the binding.
+
+Handles render as the target's name, so one drops into anywhere a name was already accepted:
+
+```ts
+install { targets: [core, app] export: "ToolkitTargets" }
+message(`built ${app.name}`)
+```
+
+Available on a handle: `link`, `include`, `compileOptions`, `linkOptions`, `defines`, `features`, `sources`, `properties`, `discoverTests`, `alias`. `app.name` and `app.kind` are the only fields — anything else is an error rather than a `app::whatever` guess.
+
+`app { ... }` reopens a target and takes the whole block vocabulary, including `install`:
+
+```ts
+app {
+    defines(PUBLIC): ["FOO=1"]
+    install { runtime: "bin" }
+}
+```
+
+Two things behave differently once the target is declared, because `add_executable` / `add_library` is already written and cannot be folded into after the fact:
+
+- `sources` becomes a `target_sources()` command of its own, in both the method and the reopened-block form.
+- `doc:` is rejected — it is the comment above the declaration, so it only means something where the target is declared.
+
+A handle only exists after its declaration has run, so a target cannot be referenced before it is declared. That is CMake's own rule for `target_*()`, enforced here with a line number instead of a configure-time error. Handles follow the usual scoping, which makes the loop case read directly:
+
+```ts
+for (name of SUITES) {
+    const t = executable(name) { sources: [`${name}.cpp`] }
+    t.link(GTest.gtest_main)
+    t.discoverTests()
+}
+```
+
+Inside a target block `self` is the handle for the target being declared.
+
 ### Dependencies
 
 ```ts
@@ -205,6 +267,50 @@ when (!cmake.CXX_COMPILER) {                    // decided by CMake
 `when` conditions translate rather than evaluate: `!` → `NOT`, `&&` → `AND`, `||` → `OR`, `==` on strings → `STREQUAL` (on numbers → `EQUAL`), and `defined(x)`, `exists(p)`, `target(t)`, `command(c)` → `DEFINED`, `EXISTS`, `TARGET`, `COMMAND`. String literals in conditions are always quoted, so a value that happens to match a variable name is not silently re-read as one.
 
 Built-in transpile-time functions: `upper`, `lower`, `join`, `replace`, `len`, `get`. Lists and strings concatenate with `+`; `.length` works on lists.
+
+### Records
+
+`get(suite, "extra", [])` above is doing two jobs badly: it stands in for an optional field, and it silently returns the default when the field name is misspelled. A typo there produces a target that configures cleanly and fails at link time, with nothing pointing back at the `.scmake`. A `record` gives that data a shape:
+
+```ts
+record Suite {
+    name: string
+    extra: list = []
+    parallel: bool = true
+}
+
+const SUITES: Suite[] = [
+    { name: "matrix", extra: [Eigen.Eigen] },
+    { name: "moc" },                          // extra: [], parallel: true
+]
+
+for (suite of SUITES) {
+    executable(suite.name) {
+        sources: [`${suite.name}.cpp`]
+        link: [GTest.gtest_main] + suite.extra    // no get(), the field is there
+    }
+}
+```
+
+A field with a default is filled in when it is absent, so every field is always present and `suite.extra` reads directly. A field without one is required. Anything not declared is an error at the `const`, with a line number and a suggestion:
+
+```
+build.scmake:14:0: error: Suite has no field 'extrs'; it has extra, name, parallel — did you mean 'extra'?
+```
+
+Field types are `string`, `number`, `bool`, `target`, `list`, `any`, any record declared earlier, and `T[]` for a list of those. `list` is `any[]`, which is usually what build data wants — a list whose elements may be strings, targets and namespaced references alike. `target` is a handle from [Targets as values](#targets-as-values).
+
+```ts
+record Tool {
+    name: string
+    deps: target[] = []
+    defines: string[] = []
+}
+```
+
+Records are transpile-time only and emit nothing, exactly like `const`. The annotation is what triggers the check — `const X = [...]` with no `: T` is unchanged and still perfectly valid. Defaults are evaluated once, where the record is declared.
+
+A list-valued setting that is empty emits no command at all, rather than a bare `target_link_libraries(app PRIVATE)`. That is what makes a field defaulting to `[]` usable without guarding every use.
 
 ### Installing
 
@@ -333,6 +439,21 @@ One limitation: a comment *after* code on a line, or inside a multi-line
 expression, is emitted near the following statement rather than the one it
 trails, because a statement's extent is tracked by its first line only.
 
+## Examples
+
+| | what it is | what it is for |
+|---|---|---|
+| `examples/hello.scmake` | one file, no sources | a tour of the vocabulary |
+| `examples/rosetta-tests.scmake` | a real 197-line CMakeLists, translated | proof the output matches command-for-command |
+| `examples/toolkit/` | library + tools + tests, builds | `#include` and `function` — repetition factored into real CMake functions |
+| `examples/imgfx/` | library + three filters + tests, builds | records and target handles — repetition factored into a table |
+
+`toolkit/` and `imgfx/` solve the same problem two ways, and each has a README
+comparing them. A `function` becomes a real `function()`, so hand-written CMake
+can call it — but its body runs when CMake configures, and cannot see scmake's
+data. A `record` plus a `for` stays at transpile time, so the table can carry
+per-target settings and have them checked.
+
 ## Keeping the two files in sync
 
 The generated header says `do not edit`, but nothing enforces it. In CI:
@@ -343,7 +464,7 @@ scmake build.scmake --check    # non-zero if CMakeLists.txt is out of date
 
 ## Status
 
-Prototype (v0.1). It covers the vocabulary above and is exercised by 31 tests plus a real project; anything outside that vocabulary is a compile error, so you will not get silently wrong CMake — but you will meet the edges. `raw` and `cmake(...)` are there for those.
+Prototype (v0.1). It covers the vocabulary above and is exercised by 101 tests plus a real project; anything outside that vocabulary is a compile error, so you will not get silently wrong CMake — but you will meet the edges. `raw` and `cmake(...)` are there for those.
 
 Not yet: `export()`, generator expressions as syntax, custom commands and targets, `find_package` component sugar, `macro()`, and `PARENT_SCOPE` /  `cmake_parse_arguments` inside `function`.
 

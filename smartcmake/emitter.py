@@ -7,6 +7,7 @@ target/settings vocabulary become CMake commands.
 
 from __future__ import annotations
 
+import difflib
 from typing import Any
 
 from . import nodes as N
@@ -103,13 +104,60 @@ BUILTIN_STATEMENTS = {*DIRECTORY_CALLS, "findPackage", "message", "cmake",
                       "discoverTests", "alias", "install", "raw"}
 
 
+# Field types a `record` can use, beyond the records already declared. `list`
+# is `any[]`, which is what most build data wants: a list of names whose
+# elements may be strings, targets or namespaced references alike.
+PRIMITIVE_TYPES = ("string", "number", "bool", "target", "list", "any")
+
+# Target settings reachable as `app.<name>(...)` on a handle. Everything here
+# is a standalone CMake command, which is what lets it be written after the
+# declaration rather than inside it.
+HANDLE_METHODS = (*TARGET_LISTS, "sources", "properties", "discoverTests", "alias")
+
+
+class TargetHandle:
+    """A declared target, as a value: `const app = executable("app") { ... }`.
+
+    It renders as the target's name, so a handle drops straight into anywhere a
+    name was already accepted — `link: [core]`, `install { targets: [...] }`,
+    `${app}`. Because a handle only exists once its declaration has been
+    emitted, referring to one before it is declared is impossible, which is
+    also CMake's rule for target_*() commands.
+    """
+
+    def __init__(self, kind: str, name: str, qualifier: str | None = None):
+        self.kind = kind
+        self.name = name
+        self.qualifier = qualifier
+
+    def __str__(self) -> str:
+        return self.name
+
+
+class RecordType:
+    """A declared record. Defaults are evaluated once, here, so they see the
+    scope the record was written in rather than wherever it is later used."""
+
+    def __init__(self, name: str, fields: list):
+        self.name = name
+        self.fields = fields  # [(name, TypeRef, default_value, has_default)]
+
+    @property
+    def field_names(self) -> set:
+        return {f[0] for f in self.fields}
+
+
 class TargetCtx:
-    def __init__(self, kind: str, name: str, qualifier: str | None):
+    def __init__(self, kind: str, name: str, qualifier: str | None,
+                 declared: bool = False):
         self.kind = kind
         self.name = name
         self.qualifier = qualifier
         self.sources: list[str] = []
         self.doc: str = ""
+        # True for a `app { ... }` block: add_executable/add_library is already
+        # in the output, so nothing can be folded back into it.
+        self.declared = declared
 
 
 class Emitter:
@@ -125,6 +173,7 @@ class Emitter:
         self.first_target_slot: int | None = None
         self.minimum_emitted = False
         self.functions: set[str] = set()
+        self.records: dict[str, RecordType] = {}
 
     # --- entry point ------------------------------------------------------
 
@@ -186,7 +235,7 @@ class Emitter:
     def emit_statement(self, st, out: list, ctx: TargetCtx | None = None) -> None:
         # Anchor the auto-include slot above the first target's comment block,
         # not between the comment and the command it describes.
-        if (isinstance(st, N.Target) and out is self.lines
+        if (_declares_target(st) and out is self.lines
                 and self.first_target_slot is None):
             self.first_target_slot = len(out)
 
@@ -213,7 +262,26 @@ class Emitter:
         if isinstance(st, N.Project):
             self.emit_project(st, out)
         elif isinstance(st, N.ConstDecl):
-            self.define(st.name, self.eval(st.value))
+            # A target on the right-hand side is declared here and bound as a
+            # handle; every other value is an ordinary transpile-time binding.
+            if isinstance(st.value, N.Target):
+                if st.type_ref is not None:
+                    raise self.err("a target declaration cannot be annotated — "
+                                   "its type is the kind of target it declares", st)
+                # The comment block sits on the const, but it documents the
+                # target; hand it over so emit_target does not space it away.
+                st.value.comments = st.comments
+                self.define(st.name, self.emit_target(st.value, out))
+            else:
+                value = self.eval(st.value)
+                if st.type_ref is not None:
+                    # Up front: check_type only reaches the name through the
+                    # elements, so `const X: Suit[] = []` would never resolve it.
+                    self.check_type_exists(st.type_ref, st)
+                    value = self.check_type(value, st.type_ref, st, st.name)
+                self.define(st.name, value)
+        elif isinstance(st, N.RecordDecl):
+            self.declare_record(st)
         elif isinstance(st, N.SetVar):
             self.emit_set(st, out)
         elif isinstance(st, N.ForOf):
@@ -224,6 +292,10 @@ class Emitter:
             self.emit_when(st, out, ctx)
         elif isinstance(st, N.Target):
             self.emit_target(st, out)
+        elif isinstance(st, N.MethodCall):
+            self.emit_method_call(st, out)
+        elif isinstance(st, N.Reopen):
+            self.emit_reopen(st, out)
         elif isinstance(st, N.Fetch):
             self.emit_fetch(st, out)
         elif isinstance(st, N.Function):
@@ -397,13 +469,14 @@ class Emitter:
         out.append("endfunction()")
         out.append("")
 
-    def emit_target(self, st: N.Target, out: list) -> None:
+    def emit_target(self, st: N.Target, out: list) -> TargetHandle:
         name = str(self.eval(st.name))
         ctx = TargetCtx(st.kind, name, st.qualifier)
+        handle = TargetHandle(st.kind, name, st.qualifier)
 
         body: list[str] = []
         self.push()
-        self.define("self", name)
+        self.define("self", handle)
         for sub in st.body:
             self.emit_statement(sub, body, ctx)
         self.pop()
@@ -426,6 +499,187 @@ class Emitter:
             out.extend(f"# {line}" for line in _wrap_comment(ctx.doc))
         out.extend(render_command(decl[0], decl[1]))
         out.extend(body)
+        return handle
+
+    # --- records -----------------------------------------------------------
+
+    def declare_record(self, st: N.RecordDecl) -> None:
+        if st.name in PRIMITIVE_TYPES:
+            raise self.err(f"{st.name!r} is a built-in type", st)
+        if st.name in self.records:
+            raise self.err(f"record {st.name!r} is already defined", st)
+
+        fields = []
+        seen: set[str] = set()
+        for f in st.fields:
+            if f.name in seen:
+                raise self.err(f"record {st.name!r} declares {f.name!r} twice", f)
+            seen.add(f.name)
+            # A record may refer to itself or to one declared earlier, but not
+            # to one declared later — the same rule `function` already follows.
+            self.check_type_exists(f.type_ref, f, allow=st.name)
+            default = self.eval(f.default) if f.has_default else None
+            if f.has_default:
+                default = self.check_type(default, f.type_ref, f,
+                                          f"{st.name}.{f.name} default")
+            fields.append((f.name, f.type_ref, default, f.has_default))
+        self.records[st.name] = RecordType(st.name, fields)
+
+    def check_type_exists(self, ref: N.TypeRef, node, allow: str = "") -> None:
+        if ref.name in PRIMITIVE_TYPES or ref.name in self.records or ref.name == allow:
+            return
+        known = [*PRIMITIVE_TYPES, *self.records]
+        raise self.err(f"unknown type {ref.name!r}{_suggest(ref.name, known)}", node)
+
+    def check_type(self, value, ref: N.TypeRef, node, path: str):
+        """Validate `value` against `ref`. Records come back with their defaults
+        filled in, so a field with a default is always present afterwards and
+        `get(x, "field", ...)` is never needed to read one."""
+        if ref.dims:
+            if not isinstance(value, list):
+                raise self.err(f"{path} should be {_type_name(ref)}, "
+                               f"got {_value_kind(value)}", node)
+            inner = N.TypeRef(ref.name, ref.dims - 1, ref.line)
+            return [self.check_type(v, inner, node, f"{path}[{i}]")
+                    for i, v in enumerate(value)]
+
+        name = ref.name
+        if name == "any":
+            return value
+        if name == "list":
+            ok = isinstance(value, list)
+        elif name == "string":
+            ok = isinstance(value, str)
+        elif name == "number":
+            # bool is an int in Python; `true` is not a number here.
+            ok = isinstance(value, (int, float)) and not isinstance(value, bool)
+        elif name == "bool":
+            ok = isinstance(value, bool)
+        elif name == "target":
+            ok = isinstance(value, TargetHandle)
+        else:
+            record = self.records.get(name)
+            if record is None:
+                self.check_type_exists(ref, node)  # raises if genuinely unknown
+                raise self.err(f"{name} is still being declared here, so it "
+                               "cannot be given a default of its own type", node)
+            return self.check_record(value, record, node, path)
+
+        if not ok:
+            raise self.err(f"{path} should be {_type_name(ref)}, "
+                           f"got {_value_kind(value)}", node)
+        return value
+
+    def check_record(self, value, record: RecordType, node, path: str) -> dict:
+        if not isinstance(value, dict):
+            raise self.err(f"{path} should be a {record.name} object, "
+                           f"got {_value_kind(value)}", node)
+        known = record.field_names
+        for key in value:
+            if key not in known:
+                raise self.err(
+                    f"{record.name} has no field {key!r}; it has "
+                    f"{', '.join(sorted(known))}{_suggest(key, known)}", node)
+
+        out: dict[str, Any] = {}
+        for fname, type_ref, default, has_default in record.fields:
+            if fname in value:
+                out[fname] = self.check_type(value[fname], type_ref, node,
+                                             f"{path}.{fname}")
+            elif has_default:
+                out[fname] = default
+            else:
+                raise self.err(f"{path} is missing {fname!r} "
+                               f"({_type_name(type_ref)}), which {record.name} "
+                               "declares without a default", node)
+        return out
+
+    # --- targets as values -------------------------------------------------
+
+    def handle_of(self, node, what: str) -> TargetHandle:
+        if isinstance(node, N.Ident):
+            value, found = self.lookup(node.name)
+            # An unbound name would otherwise fall back to a bare CMake word and
+            # be reported as "not a target", which hides the real problem: it is
+            # not declared yet. CMake needs the declaration first too.
+            if not found:
+                raise self.err(
+                    f"unknown target {node.name!r} — declare it before use, "
+                    f'e.g. `const {node.name} = executable("{node.name}") '
+                    "{ ... }`", node)
+        else:
+            value = self.eval(node)
+        if isinstance(value, TargetHandle):
+            return value
+        named = repr(node.name) if isinstance(node, N.Ident) else "that value"
+        raise self.err(f"{named} is not a target, so {what} does not apply "
+                       "to it", node)
+
+    def emit_method_call(self, st: N.MethodCall, out: list) -> None:
+        handle = self.handle_of(st.obj, f"{st.name}(...)")
+        args = [self.eval(a) for a in st.args]
+
+        # `sources` is the odd one out only in which command it becomes: the
+        # declaration is already written, so it cannot fold into add_executable
+        # / add_library the way a `sources:` inside the block does.
+        command = TARGET_LISTS.get(st.name,
+                                   "target_sources" if st.name == "sources" else None)
+        if command is not None:
+            vis, rest = self.method_visibility(args, handle)
+            if not rest:
+                raise self.err(f"{st.name}(...) needs at least one value", st)
+            values = cm_list(_flatten(rest))
+            # Written but empty — `t.link(suite.extra)` where `extra` defaulted
+            # to []. That is ordinary data-driven code, not a mistake, and a
+            # bare target_link_libraries(t PRIVATE) is only noise.
+            if values:
+                out.extend(render_command(command, [handle.name, vis, *values]))
+            return
+
+        if st.name == "properties":
+            if len(args) != 1 or not isinstance(args[0], dict):
+                raise self.err("properties(...) takes one { key: value } object", st)
+            cmd: list = [handle.name, "PROPERTIES"]
+            for key, val in args[0].items():
+                cmd += [key, cm_value(val)]
+            out.extend(render_command("set_target_properties", cmd))
+            return
+
+        if st.name == "discoverTests":
+            self.needs_gtest = True
+            out.extend(render_command("gtest_discover_tests",
+                                      [handle.name, *cm_list(_flatten(args))]))
+            return
+
+        if st.name == "alias":
+            if len(args) != 1:
+                raise self.err("alias(...) takes one name", st)
+            cmd_name = "add_executable" if handle.kind == "executable" else "add_library"
+            out.extend(render_command(cmd_name,
+                                      [cm_value(args[0]), "ALIAS", handle.name]))
+            return
+
+        raise self.err(f"a target has no {st.name}(); available: "
+                       f"{', '.join(sorted(HANDLE_METHODS))}", st)
+
+    def method_visibility(self, args: list, handle: TargetHandle) -> tuple[str, list]:
+        """`app.link(PUBLIC, core)`. PUBLIC/PRIVATE/INTERFACE are reserved in
+        CMake and cannot name a target, so a leading one is never ambiguous."""
+        default = "INTERFACE" if handle.kind == "interface" else "PRIVATE"
+        if args and isinstance(args[0], str) and args[0] in VISIBILITIES:
+            return args[0], args[1:]
+        return default, args
+
+    def emit_reopen(self, st: N.Reopen, out: list) -> None:
+        """`app { link: [core] }` — the whole target vocabulary, applied to a
+        target declared earlier."""
+        handle = self.handle_of(st.obj, "a target block")
+        ctx = TargetCtx(handle.kind, handle.name, handle.qualifier, declared=True)
+        self.push()
+        self.define("self", handle)
+        for sub in st.body:
+            self.emit_statement(sub, out, ctx)
+        self.pop()
 
     def emit_fetch(self, st: N.Fetch, out: list) -> None:
         opts: dict[str, Any] = {}
@@ -469,17 +723,30 @@ class Emitter:
             out.extend(render_command("set", [SIMPLE_VARS[st.name], cm_value(value)]))
             return
         if st.name in DIRECTORY_LISTS:
-            out.extend(render_command(DIRECTORY_LISTS[st.name], cm_list(value)))
+            values = cm_list(value)
+            if values:
+                out.extend(render_command(DIRECTORY_LISTS[st.name], values))
             return
         raise self.err(f"unknown setting {st.name!r}", st)
 
     def emit_target_setting(self, st: N.Setting, value, out: list,
                             ctx: TargetCtx) -> None:
         if st.name == "sources":
+            if ctx.declared:
+                files = cm_list(value)
+                if files:
+                    out.extend(render_command(
+                        "target_sources",
+                        [ctx.name, self.visibility(st, ctx), *files]))
+                return
             ctx.sources.extend(cm_list(value))
             return
 
         if st.name == "doc":
+            if ctx.declared:
+                raise self.err("doc: belongs where the target is declared — it "
+                               "becomes the comment above add_executable / "
+                               "add_library, which is already written", st)
             # A data-driven comment: emitted above the target declaration, so
             # a generated target can still explain itself.
             ctx.doc = stringify(value)
@@ -495,9 +762,13 @@ class Emitter:
             return
 
         if st.name in TARGET_LISTS:
-            vis = self.visibility(st, ctx)
-            out.extend(render_command(TARGET_LISTS[st.name],
-                                      [ctx.name, vis, *cm_list(value)]))
+            values = cm_list(value)
+            # An empty list is a no-op, not a bare `target_link_libraries(t
+            # PRIVATE)`; record fields that default to [] make this routine.
+            if values:
+                out.extend(render_command(TARGET_LISTS[st.name],
+                                          [ctx.name, self.visibility(st, ctx),
+                                           *values]))
             return
 
         raise self.err(f"unknown target setting {st.name!r}", st)
@@ -604,6 +875,15 @@ class Emitter:
             obj = bound
         else:
             obj = self.eval(node.obj)
+
+        if isinstance(obj, TargetHandle):
+            # Without this a typo would fall through to the namespaced-target
+            # guess below and quietly produce `app::lnk`.
+            if node.name not in ("name", "kind"):
+                raise self.err(
+                    f"a target has no field {node.name!r}; settings are applied "
+                    f"by calling them, e.g. {obj.name}.link(core)", node)
+            return getattr(obj, node.name)
 
         if isinstance(obj, dict):
             if node.name not in obj:
@@ -743,6 +1023,46 @@ def render_command(name: str, args: list, force_wrap: bool = False) -> list[str]
     if not force_wrap and (len(one_line) <= WRAP_AT or len(units) <= 1):
         return [one_line]
     return [f"{name}(", *[f"    {u}" for u in units], ")"]
+
+
+def _type_name(ref: N.TypeRef) -> str:
+    return ref.name + "[]" * ref.dims
+
+
+def _value_kind(value: Any) -> str:
+    """How a wrongly-typed value is described back to the author."""
+    if isinstance(value, TargetHandle):
+        return f"the target {value.name!r}"
+    if isinstance(value, bool):
+        return "true" if value else "false"  # as written in the source, not ON/OFF
+    if isinstance(value, (int, float)):
+        return f"the number {value}"
+    if isinstance(value, str):
+        return f"the string {value!r}"
+    if isinstance(value, list):
+        return "a list"
+    if isinstance(value, dict):
+        return "an object"
+    return type(value).__name__
+
+
+def _suggest(name: str, known) -> str:
+    """A typo is the whole reason records exist, so name the likely intent."""
+    close = difflib.get_close_matches(name, sorted(known), n=1, cutoff=0.7)
+    return f" — did you mean {close[0]!r}?" if close else ""
+
+
+def _flatten(values: list) -> list:
+    """`app.link(GTest.gtest_main, EXTRA)` where EXTRA is itself a list."""
+    out: list = []
+    for value in values:
+        out.extend(value if isinstance(value, list) else [value])
+    return out
+
+
+def _declares_target(st) -> bool:
+    return isinstance(st, N.Target) or (isinstance(st, N.ConstDecl)
+                                        and isinstance(st.value, N.Target))
 
 
 def _find_call(body: list, name: str):

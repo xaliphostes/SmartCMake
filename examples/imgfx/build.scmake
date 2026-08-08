@@ -1,0 +1,121 @@
+// A data-driven project: every filter is one row of a table, and the tool that
+// links them is a value the loop can reach.
+//
+//   scmake examples/imgfx/build.scmake -o -
+//
+// Compare with toolkit/, which factors the same kind of repetition into
+// `function` + `#include`. A function body runs when CMake configures, so it
+// cannot see scmake's data — that is why toolkit passes strings around and
+// keeps its table as a bare list of names. A `record` and a `for` stay entirely
+// at transpile time, so the table can carry per-target settings with it.
+//
+// The two splices below show the two things a `#include` can carry: definitions
+// that stay visible afterwards (filter.scmake declares the `Filter` record and
+// `WARNINGS`, and emits nothing), and commands that land at the splice point
+// (googletest.scmake, spliced inside the `when` block further down). Paths
+// resolve relative to this file.
+
+#include "cmake/filter.scmake"
+
+project imgfx {
+    cmakeMinimum: "3.20"
+    version: "0.1.0"
+    languages: [CXX]
+
+    cxx: 20
+    standardRequired: true
+    extensions: false
+    exportCompileCommands: true
+
+    // A real cache entry, so `cmake -DIMGFX_BUILD_TESTS=OFF` works.
+    set IMGFX_BUILD_TESTS = true cache(BOOL, "Build the unit tests")
+
+    when (!cmake.BUILD_TYPE) {
+        buildType: "Release"
+    }
+
+    /**
+     * The image type and its PGM reader/writer.
+     *
+     * Its include directory is PUBLIC, so everything that links it compiles
+     * against `include/` without repeating the path.
+     */
+    const core = library("imgfx_core")(STATIC) {
+        sources: ["src/image.cpp"]
+        include(PUBLIC): ["include"]
+        compileOptions(PRIVATE): WARNINGS
+        alias("Imgfx::core")
+    }
+
+    // Declared *before* the filters, so the loop below can link each one into
+    // it as it goes. `tool` is a handle: a value naming a target that already
+    // exists. A handle cannot be made before its add_executable line has been
+    // written, which is the order CMake needs anyway.
+    const tool = executable("imgfx") {
+        sources: ["tools/imgfx.cpp"]
+    }
+    tool.link(core)
+    tool { install { runtime: "bin" } }
+
+    when (vars.IMGFX_BUILD_TESTS) {
+        // Directory scope, deliberately: CMake honours enable_testing() only
+        // here. Inside a function it is accepted and silently emits no
+        // CTestTestfile, taking every test with it.
+        enableTesting()
+
+        // Splices in the fetch and include("GoogleTest") right here, inside
+        // the if() this `when` becomes.
+        #include "cmake/googletest.scmake"
+    }
+
+    // `Filter` comes from the splice at the top of this file.
+    //
+    // threshold's cutoff is build data, so it belongs here rather than in the
+    // .cpp. It carries no unit test: what that would really be checking is that
+    // the define arrived, and the end-to-end run in README.md does it better.
+    //
+    // The notes stay out here rather than between the rows: a comment inside a
+    // multi-line expression attaches to the next statement, so one written in
+    // the table would surface above the first command the loop emits.
+    const FILTERS: Filter[] = [
+        { name: "invert", sources: ["filters/invert.cpp"] },
+        { name: "threshold", sources: ["filters/threshold.cpp"],
+          defines: ["IMGFX_THRESHOLD=96"], test: false },
+        { name: "blur", sources: ["filters/blur.cpp"],
+          options: ["-ffast-math"] },
+    ]
+
+    // Both kinds of branch appear in the body below: `if (f.test)` is decided
+    // now, and only the winning arm is written out at all, while the `when`
+    // inside it becomes a real if() that CMake evaluates against the cache
+    // entry.
+    for (f of FILTERS) {
+        const lib = library(`imgfx_${f.name}`)(STATIC) {
+            doc: `The ${f.name} filter.`
+            sources: f.sources
+        }
+        lib.link(core)
+        lib.defines(f.defines)
+        lib.compileOptions(f.options)
+
+        tool.link(lib)
+
+        if (f.test) {
+            when (vars.IMGFX_BUILD_TESTS) {
+                const suite = executable(`test_${f.name}`) {
+                    sources: [`tests/${f.name}_test.cpp`]
+                }
+                suite.link(lib, core, GTest.gtest_main)
+                suite.discoverTests()
+            }
+        }
+    }
+
+    install { directory: "include/" destination: "include" }
+    install {
+        targets: [core]
+        export: "ImgfxTargets"
+        archive: "lib"
+        includes: "include"
+    }
+}

@@ -23,9 +23,19 @@ Syntax highlighting and editing support for [SmartCMake](../../README.md)
   namespace + member.
 - **Comments** — `//` and `/* */` — plus bracket matching, auto-closing pairs
   (including backticks), indentation rules, and comment toggling.
+- **Records and type annotations.** A `record Name { ... }` body is its own
+  block, so `string` / `number` / `bool` / `target` / `list` / `any` are scoped
+  as types only where a type can appear — a `buildType: Release` elsewhere is
+  untouched. The annotation in `const ROWS: Suite[] = [...]` is highlighted the
+  same way, and an object-literal default (`d: Dep = { lib: "x" }`) does not
+  end the record block.
+- **Target handles.** In `app.link(core)` the method is scoped as
+  `support.function.method`, distinct from the `GTest.gtest_main` namespace
+  form that shares its shape.
 - **Snippets** for `project`, `executable`, `library`, `interface`, `fetch`,
   `when`, `if`, `for`, `const`, `set`, `setcache`, `discoverTests`,
-  `findPackage`, `raw` and `cmake`.
+  `findPackage`, `raw`, `cmake`, plus `record`, `consttyped`, `exehandle`,
+  `libhandle` and `reopen`.
 
 This is highlighting only — there is no language server, so no diagnostics or
 completion. `scmake build.scmake` remains the thing that tells you whether the
@@ -38,7 +48,7 @@ file is valid.
 Symlink the extension into your VS Code extensions directory and restart:
 
 ```sh
-ln -s "$PWD/editors/vscode" ~/.vscode/extensions/smartcmake-0.1.0
+ln -s "$PWD/editors/vscode" ~/.vscode/extensions/smartcmake-0.2.0
 ```
 
 For VS Code Insiders use `~/.vscode-insiders/extensions/` instead. Open any
@@ -51,7 +61,7 @@ For VS Code Insiders use `~/.vscode-insiders/extensions/` instead. Open any
 npm install -g @vscode/vsce
 cd editors/vscode
 vsce package
-code --install-extension smartcmake-0.1.0.vsix
+code --install-extension smartcmake-0.2.0.vsix
 ```
 
 ## Layout
@@ -69,10 +79,15 @@ To see the scope under the cursor, run **Developer: Inspect Editor Tokens and
 Scopes** from the command palette. Changes to the grammar or the language
 configuration are picked up with **Developer: Reload Window**.
 
-The grammar was checked against `examples/hello.scmake` and
-`examples/rosetta-tests.scmake` (every token receives a scope) and against a
-fixture covering the rest of the vocabulary in the top-level README: `cache(...)`,
+The grammar was checked against `examples/hello.scmake`,
+`examples/rosetta-tests.scmake` and `examples/imgfx/` (every token receives a
+scope) and against a fixture covering the rest of the vocabulary in the top-level README: `cache(...)`,
 `raw`, `findPackage`, `alias`, `properties`, the `defined`/`exists`/`target`/
 `command` predicates, the `upper`/`lower`/`join`/`replace`/`len`/`get` builtins,
 `else` / `else if`, single-quoted and multi-line template strings, and block
 comments.
+
+Every `match` / `begin` / `end` in the grammar compiles, every `captures` index
+is within its pattern's group count, and every `#name` reference resolves to a
+repository entry — worth re-checking after an edit, since a dangling reference
+fails silently at runtime.

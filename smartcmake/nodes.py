@@ -26,7 +26,35 @@ class ConstDecl:
     """Transpile-time binding. Never appears in the CMake output."""
     name: str
     value: Any
+    type_ref: Optional[Any] = None  # TypeRef, from `const X: Suite[] = ...`
     comments: list = field(default_factory=list)
+    line: int = 0
+
+
+@dataclass
+class RecordDecl:
+    """`record Suite { name: string  extra: list = [] }` — the shape of the
+    object literals a `const` holds. Transpile-time only; emits nothing."""
+    name: str
+    fields: list  # [FieldDecl]
+    comments: list = field(default_factory=list)
+    line: int = 0
+
+
+@dataclass
+class FieldDecl:
+    name: str
+    type_ref: Any
+    default: Any = None
+    has_default: bool = False
+    line: int = 0
+
+
+@dataclass
+class TypeRef:
+    """`string`, `Suite`, `string[]`. `dims` counts the trailing `[]` pairs."""
+    name: str
+    dims: int = 0
     line: int = 0
 
 
@@ -77,6 +105,29 @@ class Target:
     name: Any  # expression
     qualifier: Optional[str] = None  # STATIC | SHARED | MODULE ...
     body: list = field(default_factory=list)
+    comments: list = field(default_factory=list)
+    line: int = 0
+
+
+@dataclass
+class MethodCall:
+    """`app.link(core)` — one setting applied to an already-declared target.
+
+    The target's declaration is already written by the time this runs, so every
+    method emits a command of its own rather than folding into `add_*`.
+    """
+    obj: Any  # expression, must evaluate to a target handle
+    name: str
+    args: list
+    comments: list = field(default_factory=list)
+    line: int = 0
+
+
+@dataclass
+class Reopen:
+    """`app { link: [core] }` — a target body applied to an existing target."""
+    obj: Any
+    body: list
     comments: list = field(default_factory=list)
     line: int = 0
 

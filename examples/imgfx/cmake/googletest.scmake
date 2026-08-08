@@ -1,0 +1,12 @@
+// Fetches GoogleTest and pulls in gtest_discover_tests().
+//
+// enableTesting() deliberately stays out of this file: CMake honours
+// enable_testing() at directory scope only, so the caller does it.
+
+fetch googletest {
+    git: "https://github.com/google/googletest.git"
+    tag: "v1.15.2"
+    options: { INSTALL_GTEST: false }
+}
+
+include("GoogleTest")

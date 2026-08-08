@@ -75,7 +75,9 @@
   },
   "include": {
     "prefix": "#include",
-    "body": ["#include \"${1:cmake/utils.scmake}\""],
+    "body": [
+      "#include \"${1:cmake/utils.scmake}\""
+    ],
     "description": "Splice another .scmake file's output in at this point"
   },
   "fetch": {
@@ -99,22 +101,34 @@
   },
   "if": {
     "prefix": "if",
-    "body": ["if (${1:condition}) {", "\t$0", "}"],
+    "body": [
+      "if (${1:condition}) {",
+      "\t$0",
+      "}"
+    ],
     "description": "Transpile-time branch — only the winning arm is written out"
   },
   "for": {
     "prefix": "for",
-    "body": ["for (${1:item} of ${2:LIST}) {", "\t$0", "}"],
+    "body": [
+      "for (${1:item} of ${2:LIST}) {",
+      "\t$0",
+      "}"
+    ],
     "description": "Transpile-time loop — expands away"
   },
   "const": {
     "prefix": "const",
-    "body": ["const ${1:NAME} = ${2:value}"],
+    "body": [
+      "const ${1:NAME} = ${2:value}"
+    ],
     "description": "Transpile-time constant (vanishes from the output)"
   },
   "set": {
     "prefix": "set",
-    "body": ["set ${1:NAME} = ${2:\"value\"}"],
+    "body": [
+      "set ${1:NAME} = ${2:\"value\"}"
+    ],
     "description": "A real CMake set()"
   },
   "setcache": {
@@ -126,22 +140,78 @@
   },
   "discoverTests": {
     "prefix": "discoverTests",
-    "body": ["discoverTests()"],
+    "body": [
+      "discoverTests()"
+    ],
     "description": "gtest_discover_tests(<target>) — pulls in enable_testing()/GoogleTest"
   },
   "findPackage": {
     "prefix": "findPackage",
-    "body": ["findPackage(${1:Qt6}, REQUIRED, COMPONENTS, ${2:Widgets})"],
+    "body": [
+      "findPackage(${1:Qt6}, REQUIRED, COMPONENTS, ${2:Widgets})"
+    ],
     "description": "find_package(...)"
   },
   "raw": {
     "prefix": "raw",
-    "body": ["raw \"${1:install(TARGETS app DESTINATION bin)}\""],
+    "body": [
+      "raw \"${1:install(TARGETS app DESTINATION bin)}\""
+    ],
     "description": "Escape hatch: emit a literal CMake line"
   },
   "cmake": {
     "prefix": "cmake",
-    "body": ["cmake(\"${1:some_command}\", ${2:ARG1})"],
+    "body": [
+      "cmake(\"${1:some_command}\", ${2:ARG1})"
+    ],
     "description": "Escape hatch: any CMake command not covered by a keyword"
+  },
+  "record": {
+    "prefix": "record",
+    "body": [
+      "record ${1:Suite} {",
+      "\t${2:name}: ${3|string,number,bool,target,list,any|}",
+      "\t${4:extra}: list = []",
+      "}"
+    ],
+    "description": "A record: the shape of the object literals a const holds"
+  },
+  "const typed": {
+    "prefix": "consttyped",
+    "body": [
+      "const ${1:ROWS}: ${2:Suite}[] = [",
+      "\t{ ${3:name}: \"${4:a}\" },",
+      "]"
+    ],
+    "description": "A const annotated with a record type, checked at the table"
+  },
+  "executable handle": {
+    "prefix": "exehandle",
+    "body": [
+      "const ${1:app} = executable(\"${2:app}\") {",
+      "\tsources: [\"${3:src/main.cpp}\"]",
+      "}",
+      "${1:app}.link(${4:core})"
+    ],
+    "description": "A target bound to a const, then a setting applied to the handle"
+  },
+  "library handle": {
+    "prefix": "libhandle",
+    "body": [
+      "const ${1:core} = library(\"${2:core}\")(${3|STATIC,SHARED,MODULE|}) {",
+      "\tsources: [\"${4:src/a.cpp}\"]",
+      "\tinclude(PUBLIC): [\"include\"]",
+      "}"
+    ],
+    "description": "A library bound to a const, usable as a value afterwards"
+  },
+  "reopen target": {
+    "prefix": "reopen",
+    "body": [
+      "${1:app} {",
+      "\t$0",
+      "}"
+    ],
+    "description": "Reopen a declared target and apply the block vocabulary to it"
   }
 }

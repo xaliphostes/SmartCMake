@@ -1,0 +1,34 @@
+// The shape of one row of the filter table, plus the warning set the targets
+// share. `#include`d by ../build.scmake.
+//
+// Nothing in this file emits any CMake — a `record` and a `const` are both
+// transpile-time only. What the splice provides is the *definitions*: they
+// stay visible in the including file after the splice point, which is what
+// lets ../build.scmake annotate its table with `: Filter[]` and have it
+// checked.
+//
+// Compiling this file on its own is valid and produces an empty CMakeLists,
+// which is the honest answer — there is nothing here for CMake to do. Compare
+// googletest.scmake, which does compile into a usable module.
+//
+// No blank line below: a comment block sitting directly above a statement
+// belongs to it, and this one produces no CMake, so the block goes with it. A
+// blank line here would make this a free-standing comment, which *is* emitted.
+const WARNINGS = ["-Wall", "-Wextra"]
+
+/**
+ * One row per filter. A field with a default may be left out, and reading it
+ * back afterwards always works — no `get(row, "defines", [])`, and a
+ * misspelled key is an error at the table rather than a link failure later.
+ *
+ * `defines` and `options` are empty on most rows, and an empty list emits no
+ * command at all, which is what makes a defaulted field usable without
+ * guarding every use of it.
+ */
+record Filter {
+    name: string
+    sources: string[]
+    defines: string[] = []
+    options: string[] = []
+    test: bool = true
+}

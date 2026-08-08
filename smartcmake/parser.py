@@ -159,6 +159,10 @@ class Parser:
             st = self.parse_project()
         elif kw == "const":
             st = self.parse_const()
+        # Guarded the way `install {` is, so a user function named `record`
+        # stays callable as `record(...)`.
+        elif kw == "record" and self.peek(1).kind == "IDENT":
+            st = self.parse_record()
         elif kw == "set":
             st = self.parse_set()
         elif kw == "for":
@@ -172,6 +176,12 @@ class Parser:
         elif kw == "raw":
             self.advance()
             st = N.Raw(self.parse_expr())
+        # Both of these shapes are reached only after every keyword above has
+        # had its turn, so `install { ... }` and friends are already claimed.
+        elif self.peek(1).kind == "PUNCT" and self.peek(1).value == ".":
+            st = self.parse_method_call()
+        elif self.peek(1).kind == "PUNCT" and self.peek(1).value == "{":
+            st = self.parse_reopen()
         else:
             st = self.parse_setting_or_call()
 
@@ -190,8 +200,48 @@ class Parser:
     def parse_const(self):
         self.advance()
         name = self.expect("IDENT").value
+        type_ref = self.parse_type() if self.accept("PUNCT", ":") else None
         self.expect("PUNCT", "=")
-        return N.ConstDecl(name, self.parse_expr())
+        # `const app = executable("app") { ... }` declares the target here and
+        # binds a handle to it, so later statements can name it.
+        if self.at("IDENT") and self.peek().value in TARGET_KEYWORDS:
+            return N.ConstDecl(name, self.parse_target(expression=True), type_ref)
+        return N.ConstDecl(name, self.parse_expr(), type_ref)
+
+    def parse_record(self):
+        self.advance()
+        name = self.expect("IDENT").value
+        self.expect("PUNCT", "{")
+        fields = []
+        while True:
+            # A record produces no CMake, so comments inside it document the
+            # .scmake only. Dropping them here stops them drifting onto the
+            # next statement, which is where take_comments would leave them.
+            self.take_comments(self.peek().line)
+            if self.at("PUNCT", "}"):
+                break
+            if self.at("EOF"):
+                raise self.error("unterminated record, expected '}'")
+            tok = self.expect("IDENT")
+            self.expect("PUNCT", ":")
+            type_ref = self.parse_type()
+            default, has_default = None, False
+            if self.accept("PUNCT", "="):
+                default, has_default = self.parse_expr(), True
+            self.accept("PUNCT", ",")
+            fields.append(N.FieldDecl(tok.value, type_ref, default, has_default,
+                                      tok.line))
+        self.expect("PUNCT", "}")
+        return N.RecordDecl(name, fields)
+
+    def parse_type(self):
+        tok = self.expect("IDENT")
+        dims = 0
+        while self.at("PUNCT", "["):
+            self.advance()
+            self.expect("PUNCT", "]")
+            dims += 1
+        return N.TypeRef(tok.value, dims, tok.line)
 
     def parse_set(self):
         self.advance()
@@ -236,7 +286,7 @@ class Parser:
         cls = N.If if kw == "if" else N.When
         return cls(cond, then, orelse)
 
-    def parse_target(self):
+    def parse_target(self, expression: bool = False):
         kind = self.advance().value
         if self.at("PUNCT", "("):
             self.advance()
@@ -244,6 +294,11 @@ class Parser:
             self.expect("PUNCT", ")")
         elif self.at("STRING") or self.at("TEMPLATE"):
             name = self.parse_expr()
+        elif expression:
+            # `const app = executable app { ... }` names the target twice and
+            # reads as if `app` were being referenced rather than declared.
+            raise self.error(f'give the name in parentheses here, e.g. '
+                             f'{kind}("name") {{ ... }}')
         else:
             name = N.Str(self.expect("IDENT").value)
 
@@ -255,6 +310,30 @@ class Parser:
             qualifier = _static_word(args[0], self, "library kind")
 
         return N.Target(kind, name, qualifier, self.parse_block())
+
+    def parse_method_call(self):
+        """`app.link(core)`, and `app.debug.link(...)` if a handle ever sits
+        behind a field. The tail has to be a call: a bare `app.link` would read
+        as an expression thrown away."""
+        obj = self.parse_primary()
+        while self.at("PUNCT", "."):
+            self.advance()
+            tok = self.expect("IDENT")
+            if self.at("PUNCT", "("):
+                return N.MethodCall(obj, tok.value, self.parse_paren_args())
+            if self.at("PUNCT", "{"):
+                # `app.install { ... }` — a block, not a call. Reopening the
+                # target is how a block-shaped setting is applied to it.
+                name = obj.name if isinstance(obj, N.Ident) else "<target>"
+                raise self.error(f"{tok.value} takes a block, so it goes inside "
+                                 f"a target block: {name} {{ {tok.value} {{ ... }} }}")
+            obj = N.Member(obj, tok.value, obj.line)
+        raise self.error("a statement starting with a name must end in a call, "
+                         "e.g. app.link(core)")
+
+    def parse_reopen(self):
+        tok = self.expect("IDENT")
+        return N.Reopen(N.Ident(tok.value, tok.line), self.parse_block())
 
     def parse_fetch(self):
         self.advance()

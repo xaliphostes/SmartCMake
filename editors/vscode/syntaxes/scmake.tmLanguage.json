@@ -6,6 +6,7 @@
   "patterns": [
     { "include": "#comments" },
     { "include": "#preprocessor" },
+    { "include": "#record-declaration" },
     { "include": "#declarations" },
     { "include": "#keywords" },
     { "include": "#strings" },
@@ -76,6 +77,82 @@
       ]
     },
 
+    "record-declaration": {
+      "comment": "record Suite { name: string  extra: list = [] } — a block of its own, so type names are only recognised where a type is legal",
+      "begin": "\\b(record)\\s+([A-Za-z_][A-Za-z0-9_]*)\\s*(\\{)",
+      "beginCaptures": {
+        "1": { "name": "keyword.declaration.record.scmake" },
+        "2": { "name": "entity.name.type.record.scmake" },
+        "3": { "name": "punctuation.definition.block.scmake" }
+      },
+      "end": "\\}",
+      "endCaptures": {
+        "0": { "name": "punctuation.definition.block.scmake" }
+      },
+      "patterns": [
+        { "include": "#comments" },
+        { "include": "#field-declaration" },
+        { "include": "#braced-group" },
+        { "include": "#strings" },
+        { "include": "#numbers" },
+        { "include": "#constants" },
+        { "include": "#identifiers" },
+        { "include": "#operators" },
+        { "include": "#punctuation" }
+      ]
+    },
+
+    "braced-group": {
+      "comment": "a balanced { ... } inside a record body — an object-literal default such as `d: Dep = { lib: \"x\" }`, whose closing brace must not end the record",
+      "begin": "\\{",
+      "beginCaptures": {
+        "0": { "name": "punctuation.definition.block.scmake" }
+      },
+      "end": "\\}",
+      "endCaptures": {
+        "0": { "name": "punctuation.definition.block.scmake" }
+      },
+      "patterns": [
+        { "include": "#comments" },
+        { "include": "#braced-group" },
+        { "include": "#strings" },
+        { "include": "#numbers" },
+        { "include": "#settings" },
+        { "include": "#namespaces" },
+        { "include": "#constants" },
+        { "include": "#functions" },
+        { "include": "#member-access" },
+        { "include": "#identifiers" },
+        { "include": "#operators" },
+        { "include": "#punctuation" }
+      ]
+    },
+
+    "field-declaration": {
+      "patterns": [
+        {
+          "comment": "name: string / tags: string[] — a built-in field type",
+          "match": "\\b([A-Za-z_][A-Za-z0-9_]*)\\s*(:)\\s*(string|number|bool|target|list|any)\\b((?:\\s*\\[\\s*\\])*)",
+          "captures": {
+            "1": { "name": "variable.other.property.scmake" },
+            "2": { "name": "punctuation.separator.key-value.scmake" },
+            "3": { "name": "support.type.primitive.scmake" },
+            "4": { "name": "punctuation.definition.list.scmake" }
+          }
+        },
+        {
+          "comment": "d: Dep / deps: Dep[] — a field typed by another record",
+          "match": "\\b([A-Za-z_][A-Za-z0-9_]*)\\s*(:)\\s*([A-Za-z_][A-Za-z0-9_]*)((?:\\s*\\[\\s*\\])*)",
+          "captures": {
+            "1": { "name": "variable.other.property.scmake" },
+            "2": { "name": "punctuation.separator.key-value.scmake" },
+            "3": { "name": "entity.name.type.scmake" },
+            "4": { "name": "punctuation.definition.list.scmake" }
+          }
+        }
+      ]
+    },
+
     "declarations": {
       "patterns": [
         {
@@ -114,11 +191,15 @@
           }
         },
         {
-          "comment": "const NAME = ... (transpile-time, vanishes from the output)",
-          "match": "\\b(const)\\s+([A-Za-z_][A-Za-z0-9_]*)",
+          "comment": "const NAME = ... and const NAME: Suite[] = ... (transpile-time, vanishes from the output). The annotation is matched here rather than globally, so a type name is only special where a type can appear.",
+          "match": "\\b(const)\\s+([A-Za-z_][A-Za-z0-9_]*)(?:\\s*(:)\\s*(?:(string|number|bool|target|list|any)\\b|([A-Za-z_][A-Za-z0-9_]*))((?:\\s*\\[\\s*\\])*))?",
           "captures": {
             "1": { "name": "storage.type.const.scmake" },
-            "2": { "name": "variable.other.constant.scmake" }
+            "2": { "name": "variable.other.constant.scmake" },
+            "3": { "name": "punctuation.separator.key-value.scmake" },
+            "4": { "name": "support.type.primitive.scmake" },
+            "5": { "name": "entity.name.type.scmake" },
+            "6": { "name": "punctuation.definition.list.scmake" }
           }
         },
         {
@@ -156,6 +237,11 @@
         {
           "name": "keyword.declaration.scmake",
           "match": "\\b(project|fetch)\\b"
+        },
+        {
+          "comment": "reached only when `record` is not followed by `Name {`, i.e. a malformed declaration",
+          "name": "keyword.declaration.record.scmake",
+          "match": "\\brecord\\b(?=\\s+[A-Za-z_])"
         },
         {
           "comment": "escape hatch: raw \"install(TARGETS app DESTINATION bin)\"",
@@ -287,7 +373,26 @@
     },
 
     "member-access": {
+      "comment": "specific forms first — the generic IDENT.IDENT rule below would otherwise consume them",
       "patterns": [
+        {
+          "comment": "app.link(core) — a setting applied to a target handle",
+          "match": "\\b([A-Za-z_][A-Za-z0-9_]*)(\\.)(link|include|compileOptions|linkOptions|defines|features|sources|properties|discoverTests|alias)\\s*(?=\\()",
+          "captures": {
+            "1": { "name": "variable.other.object.scmake" },
+            "2": { "name": "punctuation.accessor.scmake" },
+            "3": { "name": "support.function.method.scmake" }
+          }
+        },
+        {
+          "comment": "built-in fields: .length on lists, .kind on a target handle. `.name` is deliberately absent — it is also a builtin, but far too common a record field to claim.",
+          "match": "\\b([A-Za-z_][A-Za-z0-9_]*)(\\.)(length|kind)\\b(?!\\s*\\()",
+          "captures": {
+            "1": { "name": "variable.other.object.scmake" },
+            "2": { "name": "punctuation.accessor.scmake" },
+            "3": { "name": "support.variable.property.scmake" }
+          }
+        },
         {
           "comment": "GTest.gtest_main -> GTest::gtest_main; also suite.name on records",
           "match": "\\b([A-Za-z_][A-Za-z0-9_]*)(\\.)([A-Za-z_][A-Za-z0-9_]*)",
@@ -295,14 +400,6 @@
             "1": { "name": "entity.name.namespace.scmake" },
             "2": { "name": "punctuation.accessor.scmake" },
             "3": { "name": "variable.other.member.scmake" }
-          }
-        },
-        {
-          "comment": ".length on lists",
-          "match": "(\\.)(length)\\b",
-          "captures": {
-            "1": { "name": "punctuation.accessor.scmake" },
-            "2": { "name": "support.variable.property.scmake" }
           }
         }
       ]

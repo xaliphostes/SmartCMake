@@ -2,7 +2,7 @@
   "name": "smartcmake",
   "displayName": "SmartCMake",
   "description": "Syntax highlighting for SmartCMake (.scmake) build sources.",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "publisher": "smartcmake",
   "license": "MIT",
   "engines": {
