@@ -80,7 +80,7 @@ INSTALL_WORDS = (
 INSTALL_FLAGS = (("optional", "OPTIONAL"), ("excludeFromAll", "EXCLUDE_FROM_ALL"))
 
 INSTALL_KEYS = {k for k, _ in (*INSTALL_KINDS, *INSTALL_ARTIFACTS,
-                               *INSTALL_WORDS, *INSTALL_FLAGS)}
+                               *INSTALL_WORDS, *INSTALL_FLAGS)} | {"fileSets"}
 
 DIRECTORY_CALLS = {
     "enableTesting": ("enable_testing", 0),
@@ -102,7 +102,11 @@ PRIMITIVE_TYPES = ("string", "number", "bool", "target", "list", "any")
 # Target settings reachable as `app.<name>(...)` on a handle. Everything here
 # is a standalone CMake command, which is what lets it be written after the
 # declaration rather than inside it.
-HANDLE_METHODS = (*TARGET_LISTS, "sources", "properties", "discoverTests", "alias")
+HANDLE_METHODS = (*TARGET_LISTS, "sources", "fileSet", "properties", "discoverTests",
+                  "alias")
+
+# fileSet { ... } keys, in the order they are written.
+FILE_SET_KEYS = ("name", "type", "baseDirs", "files")
 
 # FetchContent_Declare argument order.
 FETCH_KEYS = (("git", "GIT_REPOSITORY"), ("tag", "GIT_TAG"), ("url", "URL"),

@@ -96,7 +96,13 @@ class CommandsMixin:
         args: list = [[word, *cm_list(values)]]
         if key == "targets" and "export" in opts:
             args.append(["EXPORT", cm_value(opts["export"])])
+        if "fileSets" in opts and key != "targets":
+            raise self.err("fileSets only applies to install { targets: ... }", st)
         for name, keyword in INSTALL_ARTIFACTS:
+            if name == "includes":
+                # FILE_SET <name> belongs with the artifact kinds, before INCLUDES
+                for file_set in cm_list(opts.get("fileSets", [])):
+                    args.append(["FILE_SET", file_set])
             if name in opts:
                 args.append([keyword, "DESTINATION", cm_value(opts[name])])
         for name, keyword in INSTALL_WORDS:
@@ -190,6 +196,16 @@ class CommandsMixin:
             return
         raise self.err(f"unknown setting {st.name!r}", st)
 
+    def spread_args(self, nodes: list) -> list[str]:
+        """Arguments of a raw CMake command: a list contributes one argument per
+        element, as `cmake("target_sources", t, PRIVATE, FILES)` callers mean,
+        rather than one `a;b;c` string."""
+        args: list[str] = []
+        for node in nodes:
+            value = self.eval(node)
+            args.extend(cm_list(value) if isinstance(value, list) else [cm_value(value)])
+        return args
+
     def emit_call(self, st: N.Call, out: list, ctx) -> None:
         args = [cm_value(self.eval(a)) for a in st.args]
 
@@ -216,14 +232,15 @@ class CommandsMixin:
             return
 
         if st.name == "findPackage":
-            out.append(ir.Command("find_package", args))
+            out.append(ir.Command("find_package", self.spread_args(st.args)))
             return
         if st.name == "message":
             text = [cm_quote(self.eval(a)) for a in st.args]
             out.append(ir.Command("message", ["STATUS", *text]))
             return
         if st.name == "cmake":
-            out.append(ir.Command(args[0].strip('"'), args[1:]))
+            spread = self.spread_args(st.args)
+            out.append(ir.Command(spread[0].strip('"'), spread[1:]))
             return
         if st.name in self.functions:
             out.append(ir.Command(st.name, args))

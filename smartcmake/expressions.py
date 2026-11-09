@@ -124,6 +124,20 @@ class ExpressionsMixin:
             return sep.join(stringify(x) for x in args[0])
         if name == "replace":
             return stringify(args[0]).replace(stringify(args[1]), stringify(args[2]))
+        if name == "var":
+            # vars.X with a computed name: var(`cgogn_${c}_FOUND`) -> ${cgogn_core_FOUND}
+            if len(args) != 1:
+                raise self.err("var(name) takes one argument", node)
+            return "${" + stringify(args[0]) + "}"
+        if name in ("prefix", "suffix"):
+            # prefix(["a", "b"], "src/") -> ["src/a", "src/b"]; a string works too
+            if len(args) != 2:
+                raise self.err(f"{name}(list, text) takes two arguments", node)
+            text = stringify(args[1])
+            items = args[0] if isinstance(args[0], list) else [args[0]]
+            result = [text + stringify(x) if name == "prefix" else stringify(x) + text
+                      for x in items]
+            return result if isinstance(args[0], list) else result[0]
         if name == "len":
             return len(args[0])
         if name == "get":
@@ -155,6 +169,9 @@ class ExpressionsMixin:
                      "target": "TARGET", "command": "COMMAND"}
             if node.name in unary and len(node.args) == 1:
                 return f"{unary[node.name]} {self.condition(node.args[0])}"
+            if node.name == "var" and len(node.args) == 1:
+                # like vars.X: a variable is named bare in a condition
+                return stringify(self.eval(node.args[0]))
             raise self.err(f"{node.name}() is not valid in a when(...) condition",
                            node)
         if isinstance(node, N.Member):

@@ -12,7 +12,7 @@ from __future__ import annotations
 from . import ir
 from . import nodes as N
 from .render import wrap_comment
-from .tables import HANDLE_METHODS, TARGET_LISTS, VISIBILITIES
+from .tables import FILE_SET_KEYS, HANDLE_METHODS, TARGET_LISTS, VISIBILITIES
 from .values import TargetHandle, cm_list, cm_value, flatten, stringify
 
 
@@ -25,6 +25,7 @@ class TargetCtx:
         self.name = name
         self.qualifier = qualifier
         self.sources: list[str] = []
+        self.has_file_set = False
         self.doc: str = ""
         # True for an `app { ... }` block: add_executable/add_library is already
         # in the output, so nothing can be folded back into it.
@@ -57,12 +58,18 @@ class TargetsMixin:
             command, args = "add_executable", [name, *ctx.sources]
         elif st.kind == "interface":
             command, args = "add_library", [name, "INTERFACE", *ctx.sources]
+        elif st.qualifier == "DEFAULT":
+            # No kind at all: CMake's own default, STATIC unless BUILD_SHARED_LIBS.
+            command, args = "add_library", [name, *ctx.sources]
         else:
             command, args = "add_library", [name, st.qualifier or "STATIC",
                                             *ctx.sources]
 
-        if not ctx.sources and st.kind != "interface":
-            raise self.err(f"target {name!r} has no sources", st)
+        # Sources may still arrive after the declaration (a handle's
+        # `sources(...)`, a `fileSet`, a reopened block), which is ordinary
+        # CMake, so the check waits for the end of the file.
+        if not ctx.sources and not ctx.has_file_set and st.kind != "interface":
+            self.sourceless.setdefault(name, st)
 
         if not st.comments:
             # emit_statement already spaced the block when it had comments.
@@ -113,6 +120,19 @@ class TargetsMixin:
             # bare target_link_libraries(t PRIVATE) is only noise.
             if values:
                 out.append(ir.Command(command, [handle.name, vis, *values]))
+                if st.name == "sources":
+                    self.sourceless.pop(handle.name, None)
+            return
+
+        if st.name == "fileSet":
+            vis, rest = self.method_visibility(args, handle)
+            if len(rest) != 1 or not isinstance(rest[0], dict):
+                raise self.err("fileSet(...) takes an optional visibility and one "
+                               "{ files: [...] } object", st)
+            command = self.file_set_command(handle.name, vis, rest[0], st)
+            if command is not None:
+                out.append(command)
+                self.sourceless.pop(handle.name, None)
             return
 
         if st.name == "properties":
@@ -168,8 +188,21 @@ class TargetsMixin:
                     out.append(ir.Command(
                         "target_sources",
                         [ctx.name, self.visibility(st, ctx), *files]))
+                    self.sourceless.pop(ctx.name, None)
                 return
             ctx.sources.extend(cm_list(value))
+            return
+
+        if st.name == "fileSet":
+            if not isinstance(value, dict):
+                raise self.err("fileSet expects { files: [...], baseDirs: [...], "
+                               "name: ..., type: ... }", st)
+            command = self.file_set_command(ctx.name, self.visibility(st, ctx),
+                                            value, st)
+            if command is not None:
+                out.append(command)
+                ctx.has_file_set = True
+                self.sourceless.pop(ctx.name, None)
             return
 
         if st.name == "doc":
@@ -200,6 +233,31 @@ class TargetsMixin:
             return
 
         raise self.err(f"unknown target setting {st.name!r}", st)
+
+    def file_set_command(self, target: str, vis: str, spec: dict, st):
+        """`target_sources(<t> <VIS> FILE_SET <name> [TYPE <type>] [BASE_DIRS
+        ...] FILES ...)`. `name` defaults to HEADERS; TYPE is only written when
+        it differs from the name, since HEADERS and CXX_MODULES name their own
+        type."""
+        unknown = set(spec) - set(FILE_SET_KEYS)
+        if unknown:
+            raise self.err(f"unknown fileSet key(s) {', '.join(sorted(unknown))}; "
+                           f"expected {', '.join(FILE_SET_KEYS)}", st)
+        files = cm_list(spec.get("files", []))
+        if not files:
+            return None  # an empty set, e.g. a record field defaulting to []
+        name = stringify(spec.get("name", "HEADERS"))
+        args: list = [target, vis, ["FILE_SET", cm_value(name)]]
+        set_type = stringify(spec.get("type", ""))
+        if set_type and set_type != name:
+            args.append(["TYPE", cm_value(set_type)])
+        if name not in ("HEADERS", "CXX_MODULES") and not set_type:
+            raise self.err(f"file set {name!r} needs a type: HEADERS or CXX_MODULES", st)
+        base_dirs = cm_list(spec.get("baseDirs", []))
+        if base_dirs:
+            args.append(["BASE_DIRS", *base_dirs])
+        args += ["FILES", *files]
+        return ir.Command("target_sources", args)
 
     def visibility(self, st: N.Setting, ctx: TargetCtx) -> str:
         if not st.args:

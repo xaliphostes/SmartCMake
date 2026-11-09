@@ -111,9 +111,14 @@ List settings become directory-scope commands:
 ```ts
 executable app { sources: ["main.cpp"] }
 library core(SHARED) { sources: ["a.cpp"] }   // STATIC when omitted
+library core(DEFAULT) { sources: ["a.cpp"] }  // add_library(core a.cpp): STATIC unless BUILD_SHARED_LIBS
 interface headers { include: ["include"] }    // header-only
 executable(name) { ... }                      // computed name
 ```
+
+A target may be declared without sources and receive them later, through a handle
+(`core.sources(...)`), a reopened block or a file set — as in CMake. A target that never gets any
+is still an error, reported where it was declared.
 
 Inside a target body:
 
@@ -126,6 +131,7 @@ Inside a target body:
 | `linkOptions(VIS): [...]` | `target_link_options` |
 | `defines(VIS): [...]` | `target_compile_definitions` |
 | `features(VIS): [...]` | `target_compile_features` |
+| `fileSet(VIS): { baseDirs: [...], files: [...] }` | `target_sources(<t> VIS FILE_SET HEADERS BASE_DIRS ... FILES ...)`; `name:` (default `HEADERS`) and `type:` (needed for other names) are optional |
 | `properties: { KEY: value }` | `set_target_properties` |
 | `doc: "text"` | a `#` comment above the target |
 | `discoverTests()` | `gtest_discover_tests(<target>)` |
@@ -156,7 +162,7 @@ install { targets: [core, app] export: "ToolkitTargets" }
 message(`built ${app.name}`)
 ```
 
-Available on a handle: `link`, `include`, `compileOptions`, `linkOptions`, `defines`, `features`, `sources`, `properties`, `discoverTests`, `alias`. `app.name` and `app.kind` are the only fields — anything else is an error rather than a `app::whatever` guess.
+Available on a handle: `link`, `include`, `compileOptions`, `linkOptions`, `defines`, `features`, `sources`, `fileSet` (`core.fileSet(PUBLIC, { files: [...] })`), `properties`, `discoverTests`, `alias`. `app.name` and `app.kind` are the only fields — anything else is an error rather than a `app::whatever` guess.
 
 `app { ... }` reopens a target and takes the whole block vocabulary, including `install`:
 
@@ -240,7 +246,14 @@ when (!cmake.CXX_COMPILER) {                    // decided by CMake
 
 `when` conditions translate rather than evaluate: `!` → `NOT`, `&&` → `AND`, `||` → `OR`, `==` on strings → `STREQUAL` (on numbers → `EQUAL`), and `defined(x)`, `exists(p)`, `target(t)`, `command(c)` → `DEFINED`, `EXISTS`, `TARGET`, `COMMAND`. String literals in conditions are always quoted, so a value that happens to match a variable name is not silently re-read as one.
 
-Built-in transpile-time functions: `upper`, `lower`, `join`, `replace`, `len`, `get`. Lists and strings concatenate with `+`; `.length` works on lists.
+Built-in transpile-time functions: `upper`, `lower`, `join`, `replace`, `len`, `get`, and:
+
+| function | gives |
+|---|---|
+| `prefix(list, text)` / `suffix(list, text)` | the list with `text` added to every element (a string works too): `suffix(prefix(UNITS, "src/"), ".cpp")` |
+| `var(name)` | `vars.X` with a computed name: `${name}` as a value, the bare name in a `when` condition — ``when (var(`${lib}_FOUND`)) { ... }`` |
+
+Lists and strings concatenate with `+`; `.length` works on lists.
 
 ### Records
 
@@ -319,6 +332,7 @@ Exactly one of `targets`, `files`, `programs`, `directory` or `export` says what
 | `namespace:` / `file:` / `rename:` / `component:` | `NAMESPACE` / `FILE` / `RENAME` / `COMPONENT` |
 | `configurations:` / `permissions:` / `pattern:` | the matching keyword |
 | `optional: true` / `excludeFromAll: true` | `OPTIONAL` / `EXCLUDE_FROM_ALL` |
+| `fileSets: ["HEADERS"]` | `FILE_SET HEADERS` (with `targets` only, before `INCLUDES DESTINATION`) |
 
 CMake's `install()` is order-sensitive, so the arguments come out in its order, not the order you wrote them. Anything not in the table above is a compile error; `raw` covers the rest.
 
@@ -375,7 +389,7 @@ cmake("some_command", ARG1, ARG2)   // any command not covered above
 raw "set_directory_properties(PROPERTIES X 1)"
 ```
 
-`cmake(...)` and `raw` are the escape hatches: anything CMake can do stays reachable without waiting for the language to grow a keyword for it.
+`cmake(...)` and `raw` are the escape hatches: anything CMake can do stays reachable without waiting for the language to grow a keyword for it. In `cmake(...)` and `findPackage(...)` a list argument is spread, one CMake argument per element: `findPackage(Qt6, REQUIRED, COMPONENTS, QT_MODULES)`.
 
 ### Comments
 
@@ -440,7 +454,7 @@ scmake build.scmake --check    # non-zero if CMakeLists.txt is out of date
 
 Prototype (v0.2). It covers the vocabulary above and is exercised by 117 tests plus a real project; anything outside that vocabulary is a compile error, so you will not get silently wrong CMake — but you will meet the edges. `raw` and `cmake(...)` are there for those.
 
-Not yet: `export()`, generator expressions as syntax, custom commands and targets, `find_package` component sugar, `macro()`, and `PARENT_SCOPE` /  `cmake_parse_arguments` inside `function`.
+Not yet: `export()`, generator expressions as syntax, custom commands and targets, `find_package` component sugar, `macro()`, a configure-time `foreach`, `set` with a computed variable name (use `cmake("set", ...)`), and `PARENT_SCOPE` /  `cmake_parse_arguments` inside `function`.
 
 Editor support so far is syntax highlighting only — see `editors/vscode` (symlink it into `~/.vscode/extensions/` or `vsce package` it). There is no language server, so `scmake` is still what tells you the file is valid.
 
