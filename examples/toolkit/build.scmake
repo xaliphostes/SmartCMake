@@ -38,21 +38,21 @@ project toolkit {
     const TOOLS = ["meshconv", "meshinfo"]
 
     for (tool of TOOLS) {
-        add_tool(tool, `tools/${tool}.cpp`)
+        add_tool(tool, `tools/${tool}.cpp`) // from include above
     }
 
     // The two kinds of logic side by side: `when` is a real if() that CMake
     // evaluates, and the `for` inside it expands away before CMake ever runs.
     when (vars.TOOLKIT_BUILD_TESTS) {
         enableTesting()
-        use_googletest()
+        use_googletest() // from include above
 
         const SUITES = ["mesh", "io"]
 
         for (suite of SUITES) {
-            add_test_suite(`test_${suite}`, `tests/${suite}_test.cpp`)
+            add_test_suite(`test_${suite}`, `tests/${suite}_test.cpp`) // from include above
         }
     }
 
-    install_library(toolkit_core, "ToolkitTargets")
+    install_library(toolkit_core, "ToolkitTargets") // from include above
 }

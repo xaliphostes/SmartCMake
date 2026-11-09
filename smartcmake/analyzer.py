@@ -43,6 +43,9 @@ class Analyzer(ExpressionsMixin, RecordsMixin, TargetsMixin, CommandsMixin):
         self.minimum_emitted = False
         self.functions: set[str] = set()
         self.records: dict[str, RecordType] = {}
+        # Targets declared without sources, by name; cleared when sources or a
+        # file set arrive later. Whatever is left at the end is an error.
+        self.sourceless: dict[str, Any] = {}
 
     # --- entry point ------------------------------------------------------
 
@@ -62,6 +65,9 @@ class Analyzer(ExpressionsMixin, RecordsMixin, TargetsMixin, CommandsMixin):
         self.header_slot = len(self.nodes)
         for st in program:
             self.emit_statement(st, self.nodes)
+        if self.sourceless:
+            name, st = next(iter(self.sourceless.items()))
+            raise self.err(f"target {name!r} has no sources", st)
         self._insert_auto_includes()
         return self.nodes
 
